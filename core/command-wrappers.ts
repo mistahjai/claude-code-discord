@@ -91,7 +91,7 @@ export function createSystemCommandHandlers(
 
   return new Map([
     ['system-info', createDeferredHandler(
-      async () => await systemHandlers.onSystemInfo({} as InteractionContext),
+      async (ctx) => await systemHandlers.onSystemInfo(ctx),
       (r) => ({ title: 'System Information', data: r.data, color: 0x00ff00 }),
       'System Info Error', crashHandler, 'system-info'
     )],
@@ -556,6 +556,29 @@ function createInfoCommandsMap(
 }
 
 // ================================
+// Project Command Handlers
+// ================================
+
+/**
+ * Create project command handlers (/project add|list|remove).
+ */
+function createProjectCommandHandlers(
+  handlers: AllHandlers
+): Map<string, { execute: (ctx: InteractionContext) => Promise<void> }> {
+  const { project: projectHandlers } = handlers;
+
+  return new Map([
+    ['project', {
+      execute: async (ctx: InteractionContext) => {
+        const subcommand = ctx.getSubcommand() ?? '';
+        const path = ctx.getString('path') ?? undefined;
+        await projectHandlers.onProject(ctx, subcommand, path);
+      }
+    }],
+  ]);
+}
+
+// ================================
 // Master Command Handler Factory
 // ================================
 
@@ -593,6 +616,7 @@ export function createAllCommandHandlers(deps: CommandWrapperDeps): CommandHandl
   const settingsHandlers = createSettingsCommandHandlers(handlers);
   const screenshotHandlers = createScreenshotCommandHandlers(handlers);
   const infoCommandHandlers = createInfoCommandsMap(handlers);
+  const projectCommandHandlers = createProjectCommandHandlers(handlers);
 
   // Create git/shell deps
   const gitShellDeps: GitShellHandlerDeps = {
@@ -621,6 +645,7 @@ export function createAllCommandHandlers(deps: CommandWrapperDeps): CommandHandl
     ...gitHandlers,
     ...shellHandlers,
     ...utilityHandlers,
+    ...projectCommandHandlers,
   ]);
 
   return commandHandlers;

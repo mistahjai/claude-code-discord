@@ -27,6 +27,7 @@ import { helpCommand, createHelpHandlers } from "../help/index.ts";
 import { agentCommand, createAgentHandlers } from "../agent/index.ts";
 import { screenshotCommands, createScreenshotHandlers } from "../screenshot/index.ts";
 import { infoCommands, createInfoCommandHandlers } from "../claude/index.ts";
+import { projectCommands, createProjectHandlers } from "../project/index.ts";
 import { cleanSessionId, ClaudeSessionManager } from "../claude/index.ts";
 import type { SessionThreadCallbacks } from "../claude/index.ts";
 import type { ClaudeModelOptions } from "../claude/index.ts";
@@ -39,6 +40,7 @@ import { THINKING_MODES, OPERATION_MODES, EFFORT_LEVELS } from "../settings/inde
 import type { ShellManager } from "../shell/index.ts";
 import type { WorktreeBotManager } from "../git/index.ts";
 import type { ProcessCrashHandler, ProcessHealthMonitor } from "../process/index.ts";
+import type { ProjectManagerOps } from "./projects.ts";
 
 // ================================
 // Types and Interfaces
@@ -144,6 +146,7 @@ export interface AllHandlers {
   agent: ReturnType<typeof createAgentHandlers>;
   screenshot: ReturnType<typeof createScreenshotHandlers>;
   infoCommands: ReturnType<typeof createInfoCommandHandlers>;
+  project: ReturnType<typeof createProjectHandlers>;
 }
 
 /**
@@ -187,6 +190,10 @@ export interface HandlerRegistryDeps {
   /** Thread-per-session callbacks (optional). When provided, each /claude
    *  invocation creates a dedicated Discord thread for its output. */
   sessionThreads?: SessionThreadCallbacks;
+  /** Project manager — maps Discord channel IDs to project directories (multi-project routing) */
+  projects: ProjectManagerOps;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 /**
@@ -405,7 +412,7 @@ export function createAllHandlers(
   const {
     workDir, repoName, branchName, categoryName, discordToken, applicationId,
     shellManager, worktreeBotManager, crashHandler, claudeSessionManager,
-    sendClaudeMessages, onBotSettingsUpdate
+    sendClaudeMessages, onBotSettingsUpdate, projects, resolveWorkDir
   } = deps;
 
   const currentSettings = settings.getSettings();
@@ -535,6 +542,7 @@ export function createAllHandlers(
 
   const claudeHandlers = createClaudeHandlers({
     workDir,
+    resolveWorkDir,
     getClaudeController: claudeSession.getController,
     setClaudeController: claudeSession.setController,
     getSessionForChannel: (channelId: string) => channelSessionMap.get(channelId),
@@ -554,6 +562,7 @@ export function createAllHandlers(
 
   const gitHandlers = createGitHandlers({
     workDir,
+    resolveWorkDir,
     actualCategoryName: categoryName,
     discordToken,
     applicationId,
@@ -563,6 +572,7 @@ export function createAllHandlers(
 
   const shellHandlers = createShellHandlers({
     shellManager,
+    resolveWorkDir,
   });
 
   const utilsHandlers = createUtilsHandlers({
@@ -588,6 +598,7 @@ export function createAllHandlers(
 
   const enhancedClaudeHandlers = createEnhancedClaudeHandlers({
     workDir,
+    resolveWorkDir,
     getClaudeController: claudeSession.getController,
     setClaudeController: claudeSession.setController,
     setClaudeSessionId: claudeSession.setSessionId,
@@ -600,10 +611,12 @@ export function createAllHandlers(
   const systemHandlers = createSystemHandlers({
     workDir,
     crashHandler,
+    resolveWorkDir,
   });
 
   const additionalClaudeHandlers = createAdditionalClaudeHandlers({
     workDir,
+    resolveWorkDir,
     getClaudeController: claudeSession.getController,
     setClaudeController: claudeSession.setController,
     sendClaudeMessages,
@@ -628,6 +641,7 @@ export function createAllHandlers(
 
   const agentHandlers = createAgentHandlers({
     workDir,
+    resolveWorkDir,
     crashHandler,
     sendClaudeMessages,
     sessionManager: claudeSessionManager,
@@ -640,9 +654,15 @@ export function createAllHandlers(
 
   const infoCommandHandlers = createInfoCommandHandlers({
     workDir,
+    resolveWorkDir,
     getQueryOptions,
     getUnifiedSettings: () => settings.getSettings().unified,
     updateUnifiedSettings: (partial) => settings.updateUnified(partial),
+  });
+
+  const projectHandlers = createProjectHandlers({
+    projects,
+    defaultWorkDir: workDir,
   });
 
   return {
@@ -659,6 +679,7 @@ export function createAllHandlers(
     agent: agentHandlers,
     screenshot: screenshotHandlers,
     infoCommands: infoCommandHandlers,
+    project: projectHandlers,
   };
 }
 
@@ -681,6 +702,7 @@ export function getAllCommands() {
     ...systemCommands,
     ...screenshotCommands,
     ...infoCommands,
+    ...projectCommands,
     helpCommand,
   ];
 }

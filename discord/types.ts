@@ -47,6 +47,8 @@ export interface InteractionContext {
   getString(name: string, required?: boolean): string | null;
   getInteger(name: string, required?: boolean): number | null;
   getBoolean(name: string, required?: boolean): boolean | null;
+  /** Returns the subcommand name for commands with subcommands (null otherwise) */
+  getSubcommand(): string | null;
   /** Returns the set of role IDs the invoking member has */
   getMemberRoleIds(): Set<string>;
   /** Returns the invoking member's user ID */

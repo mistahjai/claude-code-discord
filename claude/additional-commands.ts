@@ -190,6 +190,8 @@ export interface AdditionalClaudeHandlerDeps {
   settings: any;
   /** Get current runtime options from unified settings (thinking, operation, proxy) */
   getQueryOptions?: () => import("./client.ts").ClaudeModelOptions;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps) {
@@ -198,6 +200,9 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
   // deno-lint-ignore no-explicit-any
   const channelFrom = (ctx: any): string | undefined =>
     typeof ctx?.getChannelId === "function" ? ctx.getChannelId() : undefined;
+
+  // Resolve the working directory for the channel (falls back to the default workDir)
+  const workDirFor = (channelId?: string): string => deps.resolveWorkDir?.(channelId) ?? workDir;
 
   // Helper: merge runtime options (thinking, operation, proxy) into enhanced query options
   function getRuntimeOpts() {
@@ -244,7 +249,7 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
         const result = await enhancedClaudeQuery(
           prompt,
           {
-            workDir,
+            workDir: workDirFor(channelId),
             model: settings.defaultModel,
             includeSystemInfo: false,
             includeGitContext: false,
@@ -310,7 +315,7 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
         const result = await enhancedClaudeQuery(
           prompt,
           {
-            workDir,
+            workDir: workDirFor(channelId),
             model: settings.defaultModel,
             includeSystemInfo: settings.autoIncludeSystemInfo,
             includeGitContext: settings.autoIncludeGitContext,
@@ -377,7 +382,7 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
         const result = await enhancedClaudeQuery(
           prompt,
           {
-            workDir,
+            workDir: workDirFor(channelId),
             model: settings.defaultModel,
             includeSystemInfo: false,
             includeGitContext: settings.autoIncludeGitContext,
@@ -455,7 +460,7 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
         const result = await enhancedClaudeQuery(
           prompt,
           {
-            workDir,
+            workDir: workDirFor(channelId),
             model: settings.defaultModel,
             includeSystemInfo: false,
             includeGitContext: settings.autoIncludeGitContext,
@@ -518,7 +523,7 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
         const result = await enhancedClaudeQuery(
           prompt,
           {
-            workDir,
+            workDir: workDirFor(channelId),
             model: settings.defaultModel,
             includeSystemInfo: settings.autoIncludeSystemInfo,
             includeGitContext: settings.autoIncludeGitContext,
@@ -589,7 +594,7 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
         const result = await enhancedClaudeQuery(
           prompt,
           {
-            workDir,
+            workDir: workDirFor(channelId),
             model: settings.defaultModel,
             includeSystemInfo: false,
             includeGitContext: settings.autoIncludeGitContext,
@@ -656,7 +661,7 @@ export function createAdditionalClaudeHandlers(deps: AdditionalClaudeHandlerDeps
         const result = await enhancedClaudeQuery(
           prompt,
           {
-            workDir,
+            workDir: workDirFor(channelId),
             model: settings.defaultModel,
             includeSystemInfo: false,
             includeGitContext: false,

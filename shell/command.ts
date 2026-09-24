@@ -41,6 +41,8 @@ export const shellCommands = [
 
 export interface ShellHandlerDeps {
   shellManager: ShellManager;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to the shell manager's workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 export function createShellHandlers(deps: ShellHandlerDeps) {
@@ -49,7 +51,8 @@ export function createShellHandlers(deps: ShellHandlerDeps) {
   return {
     // deno-lint-ignore no-explicit-any
     async onShell(ctx: any, command: string, input?: string) {
-      const result = await shellManager.execute(command, input, ctx);
+      const channelId = typeof ctx?.getChannelId === 'function' ? ctx.getChannelId() : undefined;
+      const result = await shellManager.execute(command, input, ctx, deps.resolveWorkDir?.(channelId));
       return result;
     },
     

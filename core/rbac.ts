@@ -18,6 +18,8 @@ const RESTRICTED_COMMANDS: Record<string, string[]> = {
   git: ['git', 'worktree', 'worktree-remove', 'worktree-bots', 'worktree-kill'],
   /** System information exposure */
   system: ['env-vars', 'port-scan', 'system-logs'],
+  /** Per-channel project directory mapping */
+  project: ['project-add', 'project-remove'],
   /** Bot lifecycle */
   admin: ['shutdown'],
 };

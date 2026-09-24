@@ -70,6 +70,12 @@ export {
   shutdownBotContext,
 } from "./bot-factory.ts";
 
+// Project manager — multi-project routing
+export {
+  type ProjectManagerOps,
+  createProjectManager,
+} from "./projects.ts";
+
 // Handler registry
 export {
   type MessageHistoryState,

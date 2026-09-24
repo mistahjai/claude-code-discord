@@ -23,6 +23,7 @@ Found a bug or have an idea for improvement? Submit it via [GitHub Issues >⩊<]
 | AskUserQuestion | Claude can ask clarifying questions mid-session via Discord buttons | ✅ |
 | Interactive permission prompts | Allow/Deny buttons when Claude wants to use unapproved tools | ✅ |
 | Role-based access control | Restrict destructive commands (`/shell`, `/git`, worktree ops) to specific Discord roles | ✅ |
+| Multi-project routing | Map each Discord channel to a project directory with `/project add` — sessions run per channel | ✅ |
 | Channel monitoring | Watch a channel for bot/webhook messages and auto-investigate in a thread | ✅ |
 | Audit trail & accountability | Channel history provides an easy-to-search record of who ran what and when | ✅ |
 
@@ -70,6 +71,26 @@ Installment options (`auto setup script` or `manual installation`), see [Install
 /quick-model model:haiku
 ```
 
+## Multi-Project Routing
+
+Run Claude in multiple repos from one bot. Each Discord channel (or thread) can be mapped to a project directory, and Claude sessions started in that channel run in the mapped directory instead of the default `WORK_DIR`.
+
+```
+/project add path:/workspace/frontend    # Map this channel to a project
+/project list                            # Show channel → project mappings
+/project remove                          # Unmap the current channel
+/project remove path:/workspace/frontend # Unmap every channel pointing at a path
+```
+
+### How it works
+
+- **Per-channel sessions** — Claude sessions are keyed by working directory (`~/.claude/projects/`), so each project gets its own session history automatically. Use `/claude` in a mapped channel to continue that project's session.
+- **Restricted commands** — `/project` (`add` and `remove`) requires an admin role or `ADMIN_USER_IDS` (RBAC).
+- **Path validation** — `/project add` requires an existing directory that resolves (realpath) under the allowlist root, so symlink escapes are rejected. The allowlist root is `/workspace` by default; override with `PROJECTS_ROOT`.
+- **Persistence** — Mappings are saved to `.bot-data/projects.json` and restored on startup.
+- **Fallback** — Channels without a mapping use the default `WORK_DIR`. `/git`, `/shell`, and `/fast` also run in the channel's mapped directory.
+- **Scope** — Commands are handled in the bot's own channel and threads under it, so map those channels (e.g. via `/project add` inside a session thread).
+
 ## Configuration
 
 Create a `.env` file (or copy `.env.example`):
@@ -107,6 +128,7 @@ MONITOR_BOT_IDS=987654321,111111111      # Comma-separated bot/webhook/user IDs 
 | `USER_ID` | No | Your Discord user ID — bot @mentions you when tasks finish |
 | `CATEGORY_NAME` | No | Discord category name for channels (default: `claude-code`) |
 | `WORK_DIR` | No | Working directory for Claude operations (default: current dir) |
+| `PROJECTS_ROOT` | No | Allowlist root for `/project add` paths (default: `/workspace`) |
 | `ADMIN_ROLE_IDS` | No | Comma-separated role IDs for RBAC (shell, git, system, admin) |
 | `ADMIN_USER_IDS` | No | Comma-separated user IDs for RBAC — grants access regardless of roles |
 | `MONITOR_CHANNEL_ID` | No | Discord channel ID to watch for bot/webhook messages |

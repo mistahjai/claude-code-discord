@@ -98,6 +98,8 @@ export interface EnhancedClaudeHandlerDeps {
   crashHandler: any;
   /** Get current runtime options from unified settings (thinking, operation, proxy) */
   getQueryOptions?: () => import("./client.ts").ClaudeModelOptions;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 export function createEnhancedClaudeHandlers(deps: EnhancedClaudeHandlerDeps) {
@@ -164,7 +166,7 @@ export function createEnhancedClaudeHandlers(deps: EnhancedClaudeHandlerDeps) {
         const result = await enhancedClaudeQuery(
           enhancedPrompt,
           {
-            workDir,
+            workDir: deps.resolveWorkDir?.(channelId) ?? workDir,
             model: model || runtimeOpts.model,
             includeSystemInfo: !!includeSystemInfo,
             includeGitContext: !!includeGitContext,

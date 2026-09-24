@@ -176,6 +176,8 @@ export interface AgentHandlerDeps {
   sendClaudeMessages: (messages: any[]) => Promise<void>;
   sessionManager: any;
   getQueryOptions?: () => ClaudeModelOptions;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 // Persistence manager for agent sessions
@@ -406,6 +408,10 @@ async function chatWithAgent(
   const userId = ctx.user.id;
   const activeAgentName = agentName || currentUserAgent[userId];
 
+  // ctx may be a raw interaction (.channelId) or the InteractionContext wrapper (getChannelId())
+  const channelId = ctx?.channelId ?? (typeof ctx?.getChannelId === 'function' ? ctx.getChannelId() : undefined);
+  const dir = deps?.resolveWorkDir?.(channelId) ?? (deps?.workDir || Deno.cwd());
+
   if (!activeAgentName) {
     await ctx.editReply({
       embeds: [{
@@ -437,7 +443,7 @@ async function chatWithAgent(
 
   // Add context if requested
   if (includeSystemInfo) {
-    const systemInfo = `System: ${Deno.build.os} ${Deno.build.arch}\nWorking Directory: ${deps?.workDir}`;
+    const systemInfo = `System: ${Deno.build.os} ${Deno.build.arch}\nWorking Directory: ${dir}`;
     enhancedPrompt += `\n\nSystem Context:\n${systemInfo}`;
   }
 
@@ -479,7 +485,7 @@ async function chatWithAgent(
     const result = await enhancedClaudeQuery(
       enhancedPrompt,
       {
-        workDir: deps?.workDir || Deno.cwd(),
+        workDir: dir,
         // Use native SDK agent support — SDK applies agent's systemPrompt + model automatically
         agent: activeAgentName,
         agents: SDK_AGENTS,

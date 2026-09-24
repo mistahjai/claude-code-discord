@@ -57,38 +57,46 @@ export interface GitHandlerDeps {
     mentionUserId: string | null;
   };
   worktreeBotManager: WorktreeBotManager;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 export function createGitHandlers(deps: GitHandlerDeps) {
   const { workDir, actualCategoryName, discordToken, applicationId, botSettings, worktreeBotManager } = deps;
+
+  // Resolve the working directory for the invoking channel (falls back to the default workDir)
+  const dirFor = (ctx: any): string => {
+    const channelId = typeof ctx?.getChannelId === 'function' ? ctx.getChannelId() : undefined;
+    return deps.resolveWorkDir?.(channelId) ?? workDir;
+  };
   
   return {
     // deno-lint-ignore no-explicit-any
-    async onGit(_ctx: any, command: string): Promise<string> {
+    async onGit(ctx: any, command: string): Promise<string> {
       const { executeGitCommand, validateGitCommandArgs, splitGitArgs } = await import("./handler.ts");
       const validation = validateGitCommandArgs(command);
       if (!validation.valid) {
         return `Error: ${validation.reason}`;
       }
-      return await executeGitCommand(workDir, splitGitArgs(command));
+      return await executeGitCommand(dirFor(ctx), splitGitArgs(command));
     },
     
     // deno-lint-ignore no-explicit-any
-    async onWorktree(_ctx: any, branch: string, ref?: string) {
+    async onWorktree(ctx: any, branch: string, ref?: string) {
       const { createWorktree } = await import("./handler.ts");
-      return await createWorktree(workDir, branch, ref);
+      return await createWorktree(dirFor(ctx), branch, ref);
     },
     
     // deno-lint-ignore no-explicit-any
-    async onWorktreeList(_ctx: any) {
+    async onWorktreeList(ctx: any) {
       const { listWorktrees } = await import("./handler.ts");
-      return await listWorktrees(workDir);
+      return await listWorktrees(dirFor(ctx));
     },
     
     // deno-lint-ignore no-explicit-any
-    async onWorktreeRemove(_ctx: any, branch: string) {
+    async onWorktreeRemove(ctx: any, branch: string) {
       const { removeWorktree } = await import("./handler.ts");
-      return await removeWorktree(workDir, branch);
+      return await removeWorktree(dirFor(ctx), branch);
     },
     
     // deno-lint-ignore no-explicit-any

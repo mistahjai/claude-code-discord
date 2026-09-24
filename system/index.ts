@@ -14,6 +14,8 @@ export { systemCommands } from "./commands.ts";
 export interface SystemHandlerDeps {
   workDir: string;
   crashHandler: any;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 export function createSystemHandlers(deps: SystemHandlerDeps) {
@@ -26,6 +28,8 @@ export function createSystemHandlers(deps: SystemHandlerDeps) {
       try {
         const platformName = getPlatformDisplayName();
         const systemInfoOutput = await executeSystemCommand(platformCommands.systemInfoCmd);
+        const channelId = typeof ctx?.getChannelId === 'function' ? ctx.getChannelId() : undefined;
+        const dir = deps.resolveWorkDir?.(channelId) ?? workDir;
         
         // Enhanced system info with platform detection
         const systemInfo = `Platform: ${platformName} (${platform})
@@ -33,7 +37,7 @@ Architecture: ${Deno.build.arch}
 Deno Version: ${Deno.version.deno}
 V8 Version: ${Deno.version.v8}
 TypeScript Version: ${Deno.version.typescript}
-Working Directory: ${workDir}
+Working Directory: ${dir}
 
 System Details:
 ${systemInfoOutput}`;

@@ -91,6 +91,8 @@ export interface InfoCommandHandlerDeps {
   getUnifiedSettings?: () => import("../settings/unified-settings.ts").UnifiedBotSettings;
   /** Update unified settings (for /fast toggle) */
   updateUnifiedSettings?: (partial: Partial<import("../settings/unified-settings.ts").UnifiedBotSettings>) => void;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 export function createInfoCommandHandlers(deps: InfoCommandHandlerDeps) {
@@ -108,6 +110,7 @@ export function createInfoCommandHandlers(deps: InfoCommandHandlerDeps) {
 
       // Try active query first, fall back to ephemeral query
       const hasActive = !!getActiveQuery(channelId);
+      const dir = deps.resolveWorkDir?.(channelId) ?? workDir;
       
       try {
         if (showSection === 'all' || showSection === 'account') {
@@ -117,7 +120,7 @@ export function createInfoCommandHandlers(deps: InfoCommandHandlerDeps) {
           }
           if (!account) {
             // Open ephemeral query for info
-            const info = await fetchClaudeInfo(workDir);
+            const info = await fetchClaudeInfo(dir);
             if (info) {
               account = info.account;
               // If showing all, we got everything in one call
@@ -152,7 +155,7 @@ export function createInfoCommandHandlers(deps: InfoCommandHandlerDeps) {
             models = await getSupportedModels(channelId);
           }
           if (!models) {
-            const info = await fetchClaudeInfo(workDir);
+            const info = await fetchClaudeInfo(dir);
             models = info?.models;
           }
           if (models && models.length > 0) {
@@ -477,14 +480,16 @@ export function createInfoCommandHandlers(deps: InfoCommandHandlerDeps) {
       const newFastMode = !current.fastMode;
       deps.updateUnifiedSettings({ fastMode: newFastMode });
 
+      const channelId = typeof ctx.getChannelId === 'function' ? ctx.getChannelId() : undefined;
+      const dir = deps.resolveWorkDir?.(channelId) ?? workDir;
+
       // Write fastMode to .claude/settings.local.json so the CLI subprocess picks it up
       try {
-        await writeFastModeToLocalSettings(workDir, newFastMode);
+        await writeFastModeToLocalSettings(dir, newFastMode);
       } catch (err) {
         console.error('[/fast] Failed to write local settings:', err);
       }
 
-      const channelId = typeof ctx.getChannelId === 'function' ? ctx.getChannelId() : undefined;
       const activeQuery = getActiveQuery(channelId);
       const sessionNote = activeQuery
         ? '\n⚠️ Takes effect on **next query** (cannot toggle mid-session via SDK).'

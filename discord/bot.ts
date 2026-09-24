@@ -238,6 +238,14 @@ export async function createDiscordBot(
         return null;
       },
 
+      getSubcommand(): string | null {
+        if (interaction.isCommand && interaction.isCommand()) {
+          // deno-lint-ignore no-explicit-any
+          return (interaction as any).options.getSubcommand?.(false) ?? null;
+        }
+        return null;
+      },
+
       getMemberRoleIds(): Set<string> {
         const member = interaction.member;
         if (member && 'roles' in member && member.roles && 'cache' in member.roles) {

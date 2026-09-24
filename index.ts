@@ -50,6 +50,7 @@ import {
   cleanSessionId,
   createButtonHandlers,
   createAllCommandHandlers,
+  createProjectManager,
   type BotManagers,
   type AllHandlers,
   type MessageHistoryOps,
@@ -94,6 +95,10 @@ export async function createClaudeCodeBot(config: BotConfig) {
 
   // Message history for navigation
   const messageHistoryOps: MessageHistoryOps = createMessageHistory(50);
+
+  // Project manager — maps Discord channel IDs to project directories
+  // (multi-project routing; persisted to .bot-data/projects.json)
+  const projectManager = createProjectManager();
 
   // Create all managers using bot-factory
   const managers: BotManagers = createBotManagers({
@@ -274,6 +279,8 @@ export async function createClaudeCodeBot(config: BotConfig) {
         }
       },
       sessionThreads: sessionThreadCallbacks,
+      projects: projectManager,
+      resolveWorkDir: (channelId?: string) => projectManager.resolve(channelId, workDir),
     },
     {
       getController: getClaudeController,
@@ -343,8 +350,10 @@ export async function createClaudeCodeBot(config: BotConfig) {
 
           const controller = new AbortController();
           const alertChannelId = thread.id;
+          // Route via the monitored channel's project mapping (falls back to the default workDir)
+          const alertWorkDir = projectManager.resolve(thread.parentId || alertChannelId, workDir);
           await sendToClaudeCode(
-            workDir,
+            alertWorkDir,
             prompt,
             controller,
             undefined,

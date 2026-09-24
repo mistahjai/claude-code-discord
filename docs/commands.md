@@ -90,6 +90,14 @@
 | `/uptime` | System uptime. |
 | `/screenshot` | Capture a screenshot of the host display. Options: `delay`. |
 
+## Project Management (1)
+
+| Command | Description |
+|---------|-------------|
+| `/project add path:<dir>` | Map the current channel to a project directory (admin-only, must be an existing dir under `PROJECTS_ROOT`). |
+| `/project list` | Show channel → project mappings. |
+| `/project remove [path]` | Unmap the current channel, or all channels mapped to a path (admin-only). |
+
 ## Utilities (4)
 
 | Command | Description |

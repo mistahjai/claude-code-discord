@@ -106,6 +106,8 @@ export interface ClaudeHandlerDeps {
   getQueryOptions?: () => ClaudeModelOptions;
   /** Thread-per-session callbacks (optional — when absent, falls back to main channel) */
   sessionThreads?: SessionThreadCallbacks;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }
 
 export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
@@ -131,6 +133,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
   ): Promise<ClaudeResponse> {
     const controller = new AbortController();
     deps.setClaudeController(controller, channelId);
+    const dir = deps.resolveWorkDir?.(channelId) ?? workDir;
 
     try {
       if (!alreadyDeferred) {
@@ -171,7 +174,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       let result: ClaudeResponse;
       try {
         result = await sendToClaudeCode(
-          workDir,
+          dir,
           prompt,
           controller,
           activeSessionId,
@@ -316,6 +319,8 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
     // deno-lint-ignore no-explicit-any
     async onClaudeThread(ctx: any, prompt: string, threadName?: string): Promise<ClaudeResponse> {
       const parentChannelId = typeof ctx.getChannelId === 'function' ? ctx.getChannelId() : undefined;
+      // New threads have no project mapping — inherit the invoking channel's project
+      const dir = deps.resolveWorkDir?.(parentChannelId) ?? workDir;
 
       // Register/abort immediately so cancel works during defer + thread creation
       if (parentChannelId) {
@@ -372,7 +377,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
         let result: ClaudeResponse;
         try {
           result = await sendToClaudeCode(
-            workDir,
+            dir,
             prompt,
             controller,
             undefined, // always a new session
@@ -457,6 +462,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
 
       const controller = new AbortController();
       deps.setClaudeController(controller, channelId);
+      const dir = deps.resolveWorkDir?.(channelId) ?? workDir;
 
       try {
         const actualPrompt = prompt || "Please continue.";
@@ -504,7 +510,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
         let result: ClaudeResponse;
         try {
           result = await sendToClaudeCode(
-            workDir,
+            dir,
             actualPrompt,
             controller,
             undefined,

@@ -25,7 +25,7 @@ export class ShellManager {
   }
 
   // deno-lint-ignore no-explicit-any
-  async execute(command: string, input?: string, discordContext?: any): Promise<ShellExecutionResult> {
+  async execute(command: string, input?: string, discordContext?: any, workDir?: string): Promise<ShellExecutionResult> {
     const processId = ++this.processIdCounter;
     let output = '';
     const outputCallbacks: ((data: string) => void)[] = [];
@@ -65,7 +65,7 @@ export class ShellManager {
     
     const proc = new Deno.Command(shellCmd[0], {
       args: [...shellCmd.slice(1), modifiedCommand],
-      cwd: this.workDir,
+      cwd: workDir ?? this.workDir,
       stdin: "piped",
       stdout: "piped",
       stderr: "piped",
