@@ -23,6 +23,8 @@ import { handlePaginationInteraction } from "./pagination.ts";
 import { checkCommandPermission } from "../core/rbac.ts";
 import { SETTINGS_ACTIONS, SETTINGS_VALUES } from "../settings/unified-settings.ts";
 import { BOT_VERSION } from "../util/version-check.ts";
+import { listSkills } from "../claude/index.ts";
+import type { SDKSlashCommand } from "../claude/index.ts";
 import type {
   BotConfig,
   CommandHandlers,
@@ -324,6 +326,37 @@ export async function createDiscordBot(
 
   // Autocomplete handler for /settings action & value fields
   async function handleAutocomplete(interaction: AutocompleteInteraction) {
+    if (interaction.commandName === 'skill') {
+      const focused = interaction.options.getFocused(true);
+      if (focused.name !== 'name') return;
+
+      const typed = focused.value.toLowerCase();
+      const channelId = interaction.channelId;
+      const dir = dependencies.resolveWorkDir?.(channelId) ?? workDir;
+
+      // Autocomplete must respond within ~3s. On a cache miss the ephemeral
+      // discovery may take longer — respond with what we have; the discovery
+      // continues in the background so the next keystroke gets results.
+      const skills = await Promise.race([
+        listSkills(dir, channelId).catch(() => [] as SDKSlashCommand[]),
+        new Promise<SDKSlashCommand[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+      ]);
+
+      const filtered = skills
+        .filter(s =>
+          s.name.toLowerCase().includes(typed) ||
+          s.description.toLowerCase().includes(typed)
+        )
+        .slice(0, 25) // Discord max 25 choices
+        .map(s => ({
+          name: `/${s.name}${s.argumentHint ? ` ${s.argumentHint}` : ""}`.substring(0, 100),
+          value: s.name,
+        }));
+
+      await interaction.respond(filtered);
+      return;
+    }
+
     if (interaction.commandName !== 'settings') return;
 
     const focused = interaction.options.getFocused(true);

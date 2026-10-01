@@ -27,6 +27,7 @@ import { helpCommand, createHelpHandlers } from "../help/index.ts";
 import { agentCommand, createAgentHandlers } from "../agent/index.ts";
 import { screenshotCommands, createScreenshotHandlers } from "../screenshot/index.ts";
 import { infoCommands, createInfoCommandHandlers } from "../claude/index.ts";
+import { skillCommands, createSkillCommandHandlers } from "../claude/index.ts";
 import { projectCommands, createProjectHandlers } from "../project/index.ts";
 import { cleanSessionId, ClaudeSessionManager } from "../claude/index.ts";
 import type { SessionThreadCallbacks } from "../claude/index.ts";
@@ -146,6 +147,7 @@ export interface AllHandlers {
   agent: ReturnType<typeof createAgentHandlers>;
   screenshot: ReturnType<typeof createScreenshotHandlers>;
   infoCommands: ReturnType<typeof createInfoCommandHandlers>;
+  skills: ReturnType<typeof createSkillCommandHandlers>;
   project: ReturnType<typeof createProjectHandlers>;
 }
 
@@ -539,6 +541,25 @@ export function createAllHandlers(
 
   // Per-channel session tracking — maps channelId/threadId to active sessionId
   const channelSessionMap = new Map<string, string>();
+  // Reverse index: sessionId → the project dir that session was started in.
+  // Lets /claude reject a `session_id` that belongs to a different project,
+  // which would otherwise resume another project's transcript under this
+  // channel's cwd.
+  const sessionWorkDirMap = new Map<string, string>();
+
+  const setSessionForChannel = (channelId: string, sessionId: string | undefined): void => {
+    const previous = channelSessionMap.get(channelId);
+    if (sessionId) {
+      channelSessionMap.set(channelId, sessionId);
+      sessionWorkDirMap.set(sessionId, resolveWorkDir?.(channelId) ?? workDir);
+      return;
+    }
+    channelSessionMap.delete(channelId);
+    // Symmetric clear — drop the reverse entry once no channel references it
+    if (previous && ![...channelSessionMap.values()].includes(previous)) {
+      sessionWorkDirMap.delete(previous);
+    }
+  };
 
   const claudeHandlers = createClaudeHandlers({
     workDir,
@@ -546,18 +567,20 @@ export function createAllHandlers(
     getClaudeController: claudeSession.getController,
     setClaudeController: claudeSession.setController,
     getSessionForChannel: (channelId: string) => channelSessionMap.get(channelId),
-    setSessionForChannel: (channelId: string, sessionId: string | undefined) => {
-      if (sessionId) {
-        channelSessionMap.set(channelId, sessionId);
-      } else {
-        channelSessionMap.delete(channelId);
-      }
-    },
+    setSessionForChannel,
+    getWorkDirForSession: (sessionId: string) => sessionWorkDirMap.get(sessionId),
     getClaudeSessionId: claudeSession.getSessionId,
     setClaudeSessionId: claudeSession.setSessionId,
     sendClaudeMessages,
     getQueryOptions,
     sessionThreads: deps.sessionThreads,
+  });
+
+  const skillCommandHandlers = createSkillCommandHandlers({
+    workDir,
+    resolveWorkDir,
+    onClaude: (ctx, prompt, channelId, explicitSessionId) =>
+      claudeHandlers.onClaude(ctx, prompt, channelId, explicitSessionId),
   });
 
   const gitHandlers = createGitHandlers({
@@ -679,6 +702,7 @@ export function createAllHandlers(
     agent: agentHandlers,
     screenshot: screenshotHandlers,
     infoCommands: infoCommandHandlers,
+    skills: skillCommandHandlers,
     project: projectHandlers,
   };
 }
@@ -702,6 +726,7 @@ export function getAllCommands() {
     ...systemCommands,
     ...screenshotCommands,
     ...infoCommands,
+    ...skillCommands,
     ...projectCommands,
     helpCommand,
   ];

@@ -225,6 +225,18 @@ export function createClaudeCommandHandlers(
   const { addToHistory } = messageHistory;
 
   return new Map([
+    ['skill', {
+      execute: async (ctx: InteractionContext) => {
+        const name = ctx.getString('name', true)!;
+        const args = ctx.getString('args') ?? undefined;
+        await handlers.skills.onSkill(ctx, name, args);
+      }
+    }],
+    ['skills', {
+      execute: async (ctx: InteractionContext) => {
+        await handlers.skills.onSkillsList(ctx);
+      }
+    }],
     ['claude', {
       execute: async (ctx: InteractionContext) => {
         const prompt = ctx.getString('prompt', true)!;

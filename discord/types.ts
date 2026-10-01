@@ -131,4 +131,6 @@ export interface BotDependencies {
   onContinueSession?: (ctx: InteractionContext) => Promise<void>;
   /** Optional channel monitoring config for auto-responding to messages */
   monitorConfig?: MonitorConfig;
+  /** Resolve the working directory for a channel (multi-project routing). Falls back to the bot's workDir. */
+  resolveWorkDir?: (channelId?: string) => string;
 }

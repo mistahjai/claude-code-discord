@@ -848,6 +848,39 @@ export const COMMAND_HELP = {
       "Requires an active Claude session",
       "Server names must match the configured MCP server name"
     ]
+  },
+  skill: {
+    title: "Run Project Skill",
+    description: "Run a Claude Code skill or custom command defined in the current project",
+    usage: "/skill name: [skill name] args: [optional arguments]",
+    examples: [
+      "/skill name: commit",
+      "/skill name: review-pr args: 1234",
+      "/skill name: deploy args: staging"
+    ],
+    parameters: [
+      { name: "name", description: "Skill name — autocompletes from your project's skills", required: true },
+      { name: "args", description: "Arguments passed to the skill", required: false }
+    ],
+    notes: [
+      "Skills come from .claude/commands/*.md and .claude/skills/*/SKILL.md",
+      "Discovered from the project in this channel's working directory",
+      "Runs through the same pipeline as /claude (queue, session, permissions)",
+      "Use /skills to see the available skill names"
+    ]
+  },
+  skills: {
+    title: "List Project Skills",
+    description: "List the Claude Code skills and custom commands available in this project",
+    usage: "/skills",
+    examples: ["/skills"],
+    parameters: [],
+    notes: [
+      "Shows skills discovered for this channel's working directory",
+      "Lists up to 15 skills with descriptions",
+      "Use /skill name autocomplete to see the rest",
+      "Add .claude/commands/*.md or .claude/skills/*/SKILL.md to add your own"
+    ]
   }
 };
 
@@ -926,7 +959,7 @@ export function createHelpHandlers(deps: HelpHandlerDeps) {
             fields: [
               {
                 name: "Claude Code Commands",
-                value: "`/claude` - Send prompts to Claude Code\n`/claude-enhanced` - Advanced Claude with options\n`/resume` - Resume conversation\n`/claude-cancel` / Cancel button - Cancel running operation\n`/fast` - Toggle fast mode (2.5x speed)",
+                value: "`/claude` - Send prompts to Claude Code\n`/skill` - Run a project skill or custom command\n`/skills` - List available project skills\n`/claude-enhanced` - Advanced Claude with options\n`/resume` - Resume conversation\n`/claude-cancel` / Cancel button - Cancel running operation\n`/fast` - Toggle fast mode (2.5x speed)",
                 inline: false
               },
               {

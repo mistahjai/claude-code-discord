@@ -9,7 +9,7 @@
  * @module claude/query-manager
  */
 
-import { query as claudeQuery, type Query, type AccountInfo, type ModelInfo, type McpServerStatus, type SlashCommand, type RewindFilesResult, type PermissionMode, type McpSetServersResult, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { query as claudeQuery, type Query, type AccountInfo, type ModelInfo, type McpServerStatus, type SlashCommand, type RewindFilesResult, type PermissionMode, type McpSetServersResult, type McpServerConfig, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
 
 // Re-export SDK types for consumers
 export type { Query, AccountInfo, ModelInfo as SDKModelInfoFull, McpServerStatus, SlashCommand as SDKSlashCommand, RewindFilesResult, McpSetServersResult, McpServerConfig };
@@ -324,8 +324,12 @@ export async function setMcpServersActive(servers: Record<string, McpServerConfi
  * 
  * @param workDir - Working directory for the session
  * @param envVars - Environment variables (must include ANTHROPIC_API_KEY)
+ * @param opts - `settingSources` loads project/local settings files. Omitted means
+ *               SDK isolation mode (no filesystem settings), which is the default so
+ *               info lookups do not pull in project hooks or MCP servers. Pass
+ *               `['project', 'local']` when the caller needs project commands/skills.
  */
-export async function fetchClaudeInfo(workDir: string, envVars?: Record<string, string>): Promise<ClaudeInitInfo | null> {
+export async function fetchClaudeInfo(workDir: string, envVars?: Record<string, string>, opts?: { settingSources?: SettingSource[] }): Promise<ClaudeInitInfo | null> {
   let infoQuery: Query | null = null;
   try {
     // Create a minimal query — it will start the CLI subprocess
@@ -338,6 +342,7 @@ export async function fetchClaudeInfo(workDir: string, envVars?: Record<string, 
         thinking: { type: 'disabled' },
         effort: 'low',
         persistSession: false,
+        settingSources: opts?.settingSources,
         env: envVars ?? Object.fromEntries(
           Object.entries(Deno.env.toObject())
         ),

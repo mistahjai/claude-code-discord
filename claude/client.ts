@@ -1,5 +1,6 @@
 import { query as claudeQuery, type SDKMessage, type AgentDefinition as SDKAgentDefinition, type ModelInfo as SDKModelInfo, type SdkBeta, type McpServerConfig, type HookEvent, type HookCallbackMatcher } from "@anthropic-ai/claude-agent-sdk";
 import { setActiveQuery, trackMessageId, clearTrackedMessages } from "./query-manager.ts";
+import { setChannelSkills } from "./skill-registry.ts";
 import type { AskUserQuestionInput, AskUserCallback } from "./user-question.ts";
 import type { PermissionRequestCallback } from "./permission-request.ts";
 import * as path from "https://deno.land/std@0.208.0/path/mod.ts";
@@ -325,6 +326,11 @@ export async function sendToClaudeCode(
       // Store query reference for mid-session controls (interrupt, rewind, info)
       setActiveQuery(iterator, channelId);
       clearTrackedMessages(channelId);
+      // Capture available skills/commands — the initialize response arrives
+      // before the first prompt turn, so this costs no extra model call
+      void iterator.initializationResult()
+        .then((result) => setChannelSkills(result.commands, channelId))
+        .catch(() => {});
       
       const currentMessages: SDKMessage[] = [];
       let currentResponse = "";

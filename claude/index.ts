@@ -69,13 +69,17 @@ export {
   setMcpServersActive,
   hasAnyActiveQuery,
 } from "./query-manager.ts";
-export type { ClaudeInitInfo, RewindFilesResult } from "./query-manager.ts";
+export type { ClaudeInitInfo, RewindFilesResult, SDKSlashCommand } from "./query-manager.ts";
 // Hooks — passive SDK callbacks for tool/notification/task observability
 export { buildHooks } from "./hooks.ts";
 export type { HookConfig, HookEvent_Discord } from "./hooks.ts";
 // AskUserQuestion — interactive question flow (SDK v0.1.71+)
 export { buildQuestionMessages, parseAskUserButtonId, parseAskUserConfirmId } from "./user-question.ts";
 export type { AskUserCallback, AskUserQuestionInput, AskUserQuestionItem, AskUserOption } from "./user-question.ts";
+// Dynamic skills — /skill, /skills, per-channel skill registry
+export { skillCommands, createSkillCommandHandlers } from "./skill-commands.ts";
+export type { SkillCommandHandlerDeps } from "./skill-commands.ts";
+export { setChannelSkills, listSkills } from "./skill-registry.ts";
 // PermissionRequest — interactive tool-permission flow (replaces TUI prompt)
 export { buildPermissionEmbed, describeToolAction, parsePermissionButtonId } from "./permission-request.ts";
 export type { PermissionRequestCallback } from "./permission-request.ts";

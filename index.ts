@@ -328,6 +328,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     commands: getAllCommands(),
     cleanSessionId,
     botSettings,
+    resolveWorkDir: (channelId?: string) => projectManager.resolve(channelId, workDir),
     onContinueSession: async (ctx) => {
       await allHandlers.claude.onContinue(ctx);
     },

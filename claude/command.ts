@@ -77,7 +77,7 @@ export const claudeCommands = [
 
   new SlashCommandBuilder()
     .setName('resume')
-    .setDescription('Resume the most recent Claude Code session (across all channels)')
+    .setDescription('Resume the Claude session active in this channel')
     .addStringOption(option =>
       option.setName('prompt')
         .setDescription('Prompt for Claude Code (optional)')
@@ -96,6 +96,8 @@ export interface ClaudeHandlerDeps {
   getSessionForChannel: (channelId: string) => string | undefined;
   /** Set session ID for a specific channel/thread */
   setSessionForChannel: (channelId: string, sessionId: string | undefined) => void;
+  /** Project dir a session was started in (undefined if the session is unknown here) */
+  getWorkDirForSession?: (sessionId: string) => string | undefined;
   /** Legacy global getter (for /resume — find most recent across channels) */
   getClaudeSessionId: () => string | undefined;
   /** Legacy global setter (keeps backward compat for session manager) */
@@ -272,6 +274,24 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
      */
     // deno-lint-ignore no-explicit-any
     async onClaude(ctx: any, prompt: string, channelId: string, explicitSessionId?: string): Promise<ClaudeResponse> {
+      // A session ID belongs to the project (cwd) it ran in. Resuming it here
+      // would replay another project's transcript under this channel's cwd.
+      if (explicitSessionId) {
+        const sessionDir = deps.getWorkDirForSession?.(explicitSessionId);
+        const currentDir = deps.resolveWorkDir?.(channelId) ?? workDir;
+        if (sessionDir && sessionDir !== currentDir) {
+          await ctx.reply({
+            embeds: [{
+              color: EMBED_COLORS.fail,
+              title: '/claude · different project',
+              description: `That session belongs to \`${sessionDir}\`, but this channel runs in \`${currentDir}\`. Start a new session here, or run it in <#${channelId}> of that project.`,
+              timestamp: true,
+            }],
+          });
+          return { response: 'Rejected: session belongs to a different project.' };
+        }
+      }
+
       const existingController = deps.getClaudeController(channelId);
       if (existingController) {
         const enqueued = tryEnqueueClaudeJob(channelId, {
@@ -449,8 +469,8 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
     },
 
     /**
-     * /resume — Continue the most recent session (global, not per-channel).
-     * If that session has a thread, output goes there.
+     * /resume — Continue the session active in this channel/thread.
+     * Falls back to the bot-wide last session only when this channel has none.
      */
     // deno-lint-ignore no-explicit-any
     async onContinue(ctx: any, prompt?: string): Promise<ClaudeResponse> {
@@ -463,32 +483,32 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       const controller = new AbortController();
       deps.setClaudeController(controller, channelId);
       const dir = deps.resolveWorkDir?.(channelId) ?? workDir;
+      // Channel-scoped first, so resuming here never adopts another
+      // channel's session (and its thread).
+      const channelSessionId = channelId ? deps.getSessionForChannel(channelId) : undefined;
+      const resumeSessionId = channelSessionId ?? deps.getClaudeSessionId();
 
       try {
         const actualPrompt = prompt || "Please continue.";
 
         await ctx.deferReply();
 
-        // Check if the most recent session has a thread — if so, reuse it
+        // Reuse this channel's session thread if it has one
         let activeSender = sendClaudeMessages;
         let isReusingThread = false;
 
-        if (deps.sessionThreads) {
-          const currentSessionId = deps.getClaudeSessionId();
-          if (currentSessionId) {
-            try {
-              const existing = await deps.sessionThreads.getThreadSender(currentSessionId);
-              if (existing) {
-                activeSender = existing.sender;
-                isReusingThread = true;
-              }
-            } catch (err) {
-              console.warn('[SessionThread] Could not reuse thread for continue, falling back:', err);
+        if (deps.sessionThreads && resumeSessionId) {
+          try {
+            const existing = await deps.sessionThreads.getThreadSender(resumeSessionId);
+            if (existing) {
+              activeSender = existing.sender;
+              isReusingThread = true;
             }
+          } catch (err) {
+            console.warn('[SessionThread] Could not reuse thread for continue, falling back:', err);
           }
         }
 
-        const resumeSessionId = deps.getClaudeSessionId();
         const resumeThreadId = threadIdFor(resumeSessionId, channelId);
 
         await ctx.editReply({
@@ -547,6 +567,11 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
           return { response: 'Cancelled', sessionId: result.sessionId };
         }
 
+        // Claim the continued session for this channel so a later /claude or
+        // /resume here routes to the same transcript and thread
+        if (channelId && result.sessionId) {
+          deps.setSessionForChannel(channelId, result.sessionId);
+        }
         deps.setClaudeSessionId(result.sessionId);
 
         try {
