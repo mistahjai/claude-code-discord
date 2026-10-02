@@ -196,6 +196,17 @@ export interface HandlerRegistryDeps {
   projects: ProjectManagerOps;
   /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
   resolveWorkDir?: (channelId?: string) => string;
+  /** Resolve a channel/thread to its mapped project dir, or undefined if unmapped.
+   *  Threads inherit their parent channel's mapping. Used to reject /claude in an
+   *  unmapped channel instead of silently running in the default workDir. */
+  resolveProjectDir?: (channelId?: string) => string | undefined;
+  /** True when a channel/thread legitimately uses the default workDir (the bot's
+   *  own channel and threads directly inside it), so the unmapped guard skips them. */
+  usesDefaultWorkDir?: (channelId?: string) => boolean;
+  /** Create a text channel inside the bot's category, return its id (late-bound) */
+  createProjectChannel?: (name: string, topic: string) => Promise<string>;
+  /** Post a notice message into a channel (late-bound) */
+  sendChannelNotice?: (channelId: string, content: string) => Promise<void>;
 }
 
 /**
@@ -414,7 +425,7 @@ export function createAllHandlers(
   const {
     workDir, repoName, branchName, categoryName, discordToken, applicationId,
     shellManager, worktreeBotManager, crashHandler, claudeSessionManager,
-    sendClaudeMessages, onBotSettingsUpdate, projects, resolveWorkDir
+    sendClaudeMessages, onBotSettingsUpdate, projects, resolveWorkDir, resolveProjectDir, usesDefaultWorkDir
   } = deps;
 
   const currentSettings = settings.getSettings();
@@ -547,11 +558,18 @@ export function createAllHandlers(
   // channel's cwd.
   const sessionWorkDirMap = new Map<string, string>();
 
-  const setSessionForChannel = (channelId: string, sessionId: string | undefined): void => {
+  // `actualDir` is the dir the session actually ran in. Callers pass it because
+  // re-deriving from channelId is wrong for threads: a thread inherits its
+  // parent channel's mapping, so resolveWorkDir(threadId) yields the fallback.
+  const setSessionForChannel = (
+    channelId: string,
+    sessionId: string | undefined,
+    actualDir?: string,
+  ): void => {
     const previous = channelSessionMap.get(channelId);
     if (sessionId) {
       channelSessionMap.set(channelId, sessionId);
-      sessionWorkDirMap.set(sessionId, resolveWorkDir?.(channelId) ?? workDir);
+      sessionWorkDirMap.set(sessionId, actualDir ?? resolveWorkDir?.(channelId) ?? workDir);
       return;
     }
     channelSessionMap.delete(channelId);
@@ -564,6 +582,8 @@ export function createAllHandlers(
   const claudeHandlers = createClaudeHandlers({
     workDir,
     resolveWorkDir,
+    resolveProjectDir,
+    usesDefaultWorkDir,
     getClaudeController: claudeSession.getController,
     setClaudeController: claudeSession.setController,
     getSessionForChannel: (channelId: string) => channelSessionMap.get(channelId),
@@ -686,6 +706,8 @@ export function createAllHandlers(
   const projectHandlers = createProjectHandlers({
     projects,
     defaultWorkDir: workDir,
+    createProjectChannel: deps.createProjectChannel,
+    sendChannelNotice: deps.sendChannelNotice,
   });
 
   return {

@@ -19,7 +19,7 @@ import {
   type MessageContent,
   SessionThreadManager,
 } from "./discord/index.ts";
-import type { TextChannel } from "npm:discord.js@14.14.1";
+import { ChannelType, type TextChannel } from "npm:discord.js@14.14.1";
 
 import { getGitInfo } from "./git/index.ts";
 import { createClaudeSender, expandableContent, sendToClaudeCode, convertToClaudeMessages, type DiscordSender, type ClaudeMessage, type SessionThreadCallbacks } from "./claude/index.ts";
@@ -146,6 +146,63 @@ export async function createClaudeCodeBot(config: BotConfig) {
   // deno-lint-ignore no-explicit-any prefer-const
   let bot: any;
   let claudeSender: ((messages: ClaudeMessage[]) => Promise<void>) | null = null;
+
+  // Resolve a channel/thread to its mapped project directory.
+  // A thread with no direct mapping inherits its parent channel's project, so a
+  // session started in a thread never silently falls back to the default
+  // working dir. Returns undefined when the channel has no mapping at all
+  // (the caller decides whether to error or fall back).
+  const resolveProjectDir = (channelId?: string): string | undefined => {
+    if (!channelId) return undefined;
+    const direct = projectManager.get(channelId);
+    if (direct) return direct;
+    // Not mapped directly — if it's a thread, inherit the parent channel's project
+    const parentId = bot?.client?.channels?.cache?.get(channelId)?.parentId;
+    if (parentId) return projectManager.get(parentId);
+    return undefined;
+  };
+
+  // Resolver handed to handlers — always yields a dir, falling back to workDir
+  const resolveWorkDirForChannel = (channelId?: string): string =>
+    resolveProjectDir(channelId) ?? workDir;
+
+  // True when a channel/thread should use the bot's default workDir rather than a
+  // mapped project: the bot's own channel, and threads directly inside it. These
+  // are unmapped by design, so the unmapped-channel guard must skip them.
+  // Anything else (a sibling channel in the category) must be mapped via /project.
+  const usesDefaultWorkDir = (channelId?: string): boolean => {
+    if (!channelId || !bot) return true; // before bot ready — don't guard
+    const main = bot.getChannel?.();
+    if (!main) return true;
+    if (channelId === main.id) return true;
+    // deno-lint-ignore no-explicit-any
+    const parentId = (bot.client?.channels?.cache?.get(channelId) as any)?.parentId;
+    return parentId === main.id;
+  };
+
+  // Create a text channel in the bot's category (late-bound to the client).
+  // Reuses the category/channel creation the bot already performs at startup.
+  const createProjectChannel = async (name: string, topic: string): Promise<string> => {
+    const main = bot?.getChannel?.();
+    if (!main?.parentId) throw new Error('Bot category not ready');
+    const created = await bot.client.channels.create({
+      name,
+      type: ChannelType.GuildText,
+      parent: main.parentId,
+      topic,
+    });
+    return created.id;
+  };
+
+  const sendChannelNotice = async (channelId: string, content: string): Promise<void> => {
+    try {
+      // deno-lint-ignore no-explicit-any
+      const ch = bot?.client?.channels?.cache?.get(channelId) as any;
+      await ch?.send?.(content);
+    } catch (error) {
+      console.warn('[Projects] Could not post channel notice:', error);
+    }
+  };
 
   // Session thread manager — maps each Claude session to a dedicated Discord thread
   const sessionThreadManager = new SessionThreadManager();
@@ -280,7 +337,11 @@ export async function createClaudeCodeBot(config: BotConfig) {
       },
       sessionThreads: sessionThreadCallbacks,
       projects: projectManager,
-      resolveWorkDir: (channelId?: string) => projectManager.resolve(channelId, workDir),
+      resolveWorkDir: resolveWorkDirForChannel,
+      resolveProjectDir,
+      usesDefaultWorkDir,
+      createProjectChannel,
+      sendChannelNotice,
     },
     {
       getController: getClaudeController,
@@ -328,7 +389,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
     commands: getAllCommands(),
     cleanSessionId,
     botSettings,
-    resolveWorkDir: (channelId?: string) => projectManager.resolve(channelId, workDir),
+    resolveWorkDir: resolveWorkDirForChannel,
     onContinueSession: async (ctx) => {
       await allHandlers.claude.onContinue(ctx);
     },
@@ -351,8 +412,10 @@ export async function createClaudeCodeBot(config: BotConfig) {
 
           const controller = new AbortController();
           const alertChannelId = thread.id;
-          // Route via the monitored channel's project mapping (falls back to the default workDir)
-          const alertWorkDir = projectManager.resolve(thread.parentId || alertChannelId, workDir);
+          // Route via the monitored thread's project mapping — the resolver walks
+          // thread → parent channel, so an alert in a thread of a mapped channel
+          // lands in that channel's project (falls back to the default workDir)
+          const alertWorkDir = resolveWorkDirForChannel(alertChannelId);
           await sendToClaudeCode(
             alertWorkDir,
             prompt,

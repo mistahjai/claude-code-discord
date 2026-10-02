@@ -94,6 +94,7 @@
 
 | Command | Description |
 |---------|-------------|
+| `/project new path:<dir> [name]` | Create a channel in the bot's category for a project and map it to `<dir>` (admin-only). |
 | `/project add path:<dir>` | Map the current channel to a project directory (admin-only, must be an existing dir under `PROJECTS_ROOT`). |
 | `/project list` | Show channel → project mappings. |
 | `/project remove [path]` | Unmap the current channel, or all channels mapped to a path (admin-only). |

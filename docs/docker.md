@@ -34,7 +34,30 @@ docker compose up -d --build
 Volumes (from compose):
 - `bot-data` → `/app/.bot-data`
 - `claude-config` → `/home/claude/.claude`
-- Optional host project mount → `/app/workspace` (commented out by default)
+- Optional host project mount → `/workspace` (via `LOCAL_MOUNT_PATH` in `.env`, see below)
+
+### Paths in Docker: host vs. container
+
+Docker only ever sees paths **inside** the container. When you mount a host
+directory, choose the container-side path yourself and tell the bot about the
+container path — not your host path.
+
+```bash
+# .env
+# Left-hand side is a path on your machine, right-hand side is what the bot uses.
+LOCAL_MOUNT_PATH=/home/you/Documents/git
+PROJECTS_ROOT=/workspace
+```
+
+With that mount, the repo at `/home/you/Documents/git/kindle-feeder` on your
+machine is `/workspace/kindle-feeder` **inside the container**, so that is what
+you pass to `/project add path:...`.
+
+If `PROJECTS_ROOT` is set to a path that does not exist in the container (e.g.
+you left your host path in it), the bot now fails fast at startup with an
+explicit message rather than rejecting every `/project add`. Compose only injects
+variables that are listed under `environment:`, so if `PROJECTS_ROOT` is missing
+there it will not reach the container at all.
 
 ### Use GHCR Image
 

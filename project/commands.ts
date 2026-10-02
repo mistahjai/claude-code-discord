@@ -5,6 +5,17 @@ export const projectCommands = [
     .setName('project')
     .setDescription('Manage per-channel project directories (multi-project routing)')
     .addSubcommand(sc =>
+      sc.setName('new')
+        .setDescription('Create a new channel in the bot category and map it to a project directory')
+        .addStringOption(option =>
+          option.setName('path')
+            .setDescription('Absolute path to an existing directory under the allowlist root')
+            .setRequired(true))
+        .addStringOption(option =>
+          option.setName('name')
+            .setDescription('Channel name (default: project directory basename)')
+            .setRequired(false)))
+    .addSubcommand(sc =>
       sc.setName('add')
         .setDescription('Map the current channel to a project directory')
         .addStringOption(option =>

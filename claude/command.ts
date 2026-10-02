@@ -94,8 +94,9 @@ export interface ClaudeHandlerDeps {
   setClaudeController: (controller: AbortController | null, channelId?: string) => void;
   /** Get session ID for a specific channel/thread (per-channel tracking) */
   getSessionForChannel: (channelId: string) => string | undefined;
-  /** Set session ID for a specific channel/thread */
-  setSessionForChannel: (channelId: string, sessionId: string | undefined) => void;
+  /** Set session ID for a specific channel/thread. Pass `actualDir` (the dir the
+   *  session ran in) so thread sessions record their parent's project, not the fallback. */
+  setSessionForChannel: (channelId: string, sessionId: string | undefined, actualDir?: string) => void;
   /** Project dir a session was started in (undefined if the session is unknown here) */
   getWorkDirForSession?: (sessionId: string) => string | undefined;
   /** Legacy global getter (for /resume — find most recent across channels) */
@@ -110,6 +111,13 @@ export interface ClaudeHandlerDeps {
   sessionThreads?: SessionThreadCallbacks;
   /** Resolve the working directory for a channel (multi-project routing). Falls back to workDir. */
   resolveWorkDir?: (channelId?: string) => string;
+  /** Resolve a channel/thread to its mapped project dir, or undefined if unmapped.
+   *  Threads inherit their parent channel's mapping. */
+  resolveProjectDir?: (channelId?: string) => string | undefined;
+  /** True when a channel/thread should legitimately use the bot's default
+   *  workDir: the bot's own channel and threads directly inside it. Those are
+   *  unmapped by design, so the unmapped-channel guard must not fire on them. */
+  usesDefaultWorkDir?: (channelId?: string) => boolean;
 }
 
 export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
@@ -214,7 +222,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       }
 
       if (result.sessionId) {
-        deps.setSessionForChannel(channelId, result.sessionId);
+        deps.setSessionForChannel(channelId, result.sessionId, dir);
       }
       deps.setClaudeSessionId(result.sessionId);
 
@@ -265,6 +273,27 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
     }
   }
 
+  // Reject running Claude in a channel with no project mapping. Without this,
+  // an unmapped sibling channel silently runs in the bot's default workDir
+  // (often the mount root). Returns true if the caller should abort.
+  // Skipped for the bot's own channel/threads, which use workDir by design.
+  // deno-lint-ignore no-explicit-any
+  async function rejectIfUnmapped(ctx: any, channelId: string): Promise<boolean> {
+    if (!deps.resolveProjectDir || !deps.usesDefaultWorkDir) return false;
+    if (deps.resolveProjectDir(channelId)) return false;
+    if (deps.usesDefaultWorkDir(channelId)) return false;
+    await ctx.reply({
+      embeds: [{
+        color: EMBED_COLORS.info,
+        title: '/claude · no project mapped',
+        description:
+          'This channel has no project directory mapped, so Claude would run in the bot\'s default working directory.\n\nMap this channel first:\n`/project add path:<dir>`',
+        timestamp: true,
+      }],
+    });
+    return true;
+  }
+
   return {
     /**
      * /claude — Send a message to Claude. Auto-continues the session active in the
@@ -274,6 +303,9 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
      */
     // deno-lint-ignore no-explicit-any
     async onClaude(ctx: any, prompt: string, channelId: string, explicitSessionId?: string): Promise<ClaudeResponse> {
+      if (await rejectIfUnmapped(ctx, channelId)) {
+        return { response: 'Rejected: no project mapped for this channel.' };
+      }
       // A session ID belongs to the project (cwd) it ran in. Resuming it here
       // would replay another project's transcript under this channel's cwd.
       if (explicitSessionId) {
@@ -339,6 +371,9 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
     // deno-lint-ignore no-explicit-any
     async onClaudeThread(ctx: any, prompt: string, threadName?: string): Promise<ClaudeResponse> {
       const parentChannelId = typeof ctx.getChannelId === 'function' ? ctx.getChannelId() : undefined;
+      if (parentChannelId && await rejectIfUnmapped(ctx, parentChannelId)) {
+        return { response: 'Rejected: no project mapped for this channel.' };
+      }
       // New threads have no project mapping — inherit the invoking channel's project
       const dir = deps.resolveWorkDir?.(parentChannelId) ?? workDir;
 
@@ -441,7 +476,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
           deps.sessionThreads.updateSessionId(threadSessionKey, result.sessionId);
         }
         if (threadChannelId && result.sessionId) {
-          deps.setSessionForChannel(threadChannelId, result.sessionId);
+          deps.setSessionForChannel(threadChannelId, result.sessionId, dir);
         }
 
         try {
@@ -475,6 +510,9 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
     // deno-lint-ignore no-explicit-any
     async onContinue(ctx: any, prompt?: string): Promise<ClaudeResponse> {
       const channelId = typeof ctx.getChannelId === 'function' ? ctx.getChannelId() : undefined;
+      if (channelId && await rejectIfUnmapped(ctx, channelId)) {
+        return { response: 'Rejected: no project mapped for this channel.' };
+      }
       const existingController = deps.getClaudeController(channelId);
       if (existingController) {
         existingController.abort();
@@ -570,7 +608,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
         // Claim the continued session for this channel so a later /claude or
         // /resume here routes to the same transcript and thread
         if (channelId && result.sessionId) {
-          deps.setSessionForChannel(channelId, result.sessionId);
+          deps.setSessionForChannel(channelId, result.sessionId, dir);
         }
         deps.setClaudeSessionId(result.sessionId);
 

@@ -116,7 +116,7 @@ export async function createDiscordBot(
   const actualCategoryName = categoryName || repoName;
 
   let myChannel: TextChannel | null = null;
-  // deno-lint-ignore no-explicit-any no-unused-vars
+  // deno-lint-ignore no-explicit-any
   let myCategory: any = null;
 
   const botSettings = dependencies.botSettings || {
@@ -270,14 +270,26 @@ export async function createDiscordBot(
     };
   }
 
-  // Helper: check if an interaction belongs to our bot channel or a thread inside it
+  // Helper: check if an interaction belongs to our bot channel, a channel in our
+  // category, or a thread inside any of those. The bot creates a category on
+  // startup; anything inside it is considered "ours" so users can add sibling
+  // channels per project. Threads are found by their parentId (a thread's own
+  // parent is the channel it lives in).
   function isOurChannel(channelId: string): boolean {
     if (!myChannel) return false;
     if (channelId === myChannel.id) return true;
-    // Check if the interaction is inside a thread whose parent is our channel
     const channel = client.channels.cache.get(channelId);
     // deno-lint-ignore no-explicit-any
-    return !!(channel && (channel as any).parentId === myChannel.id);
+    const anyChannel = channel as any;
+    const parentId = anyChannel?.parentId;
+    // Thread in our bot channel, or sibling channel inside our category
+    if (parentId === myChannel.id) return true;
+    if (myCategory && parentId === myCategory.id) return true;
+    // Thread whose parent channel is a sibling channel in our category:
+    // a thread's .parent is its containing channel; that channel's parent is the category.
+    const grandparentId = anyChannel?.parent?.parentId;
+    if (myCategory && grandparentId === myCategory.id) return true;
+    return false;
   }
 
   // Command handler - completely generic

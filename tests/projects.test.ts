@@ -3,7 +3,7 @@
  * The /project add allowlist is a security boundary: paths must be existing
  * directories that resolve under the allowlist root, with no symlink escapes.
  */
-import { assertEquals, assertRejects } from "jsr:@std/assert@1";
+import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import * as path from "https://deno.land/std@0.208.0/path/mod.ts";
 import { createProjectManager } from "../core/projects.ts";
 
@@ -77,4 +77,35 @@ Deno.test("add validates allowlist root, persists mapping, rejects escapes", asy
     await Deno.remove(tempRoot, { recursive: true });
     await Deno.remove(tempCwd, { recursive: true });
   }
+});
+
+Deno.test("explicit PROJECTS_ROOT that does not exist fails loudly", () => {
+  // The common Docker mistake: a host path, which does not exist inside the
+  // container. Must throw at startup rather than silently becoming the allowlist.
+  Deno.env.set("PROJECTS_ROOT", "/home/definitely-not-here/git");
+  try {
+    assertThrows(() => createProjectManager(), Error, "does not exist");
+  } finally {
+    Deno.env.delete("PROJECTS_ROOT");
+  }
+});
+
+Deno.test("explicit PROJECTS_ROOT that is not a directory fails loudly", async () => {
+  const tempRoot = await Deno.makeTempDir();
+  const asFile = `${tempRoot}/not-a-dir`;
+  await Deno.writeTextFile(asFile, "x");
+  Deno.env.set("PROJECTS_ROOT", asFile);
+  try {
+    assertThrows(() => createProjectManager(), Error, "not a directory");
+  } finally {
+    Deno.env.delete("PROJECTS_ROOT");
+    await Deno.remove(tempRoot, { recursive: true });
+  }
+});
+
+Deno.test("unset PROJECTS_ROOT does not throw (native install without /project)", () => {
+  Deno.env.delete("PROJECTS_ROOT");
+  // Must not throw even when /workspace is absent on a native host.
+  const projects = createProjectManager();
+  assertEquals(projects.list().length >= 0, true);
 });

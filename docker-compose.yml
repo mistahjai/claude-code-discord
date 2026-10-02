@@ -32,7 +32,13 @@ services:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - APPLICATION_ID=${APPLICATION_ID}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - WORK_DIR=${WORK_DIR:-/app/workspace}
+      - WORK_DIR=${WORK_DIR:-/workspace}
+      # Allowlist root for /project add. Must be a path INSIDE the container
+      # (e.g. /workspace), never the host path — a host path doesn't exist in the
+      # container and /project add will reject every project.
+      - PROJECTS_ROOT=${PROJECTS_ROOT:-/workspace}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - USER_ID=${USER_ID:-}
       - CATEGORY_NAME=${CATEGORY_NAME:-claude-code}
       - MONITOR_CHANNEL_ID=${MONITOR_CHANNEL_ID:-}
@@ -44,9 +50,9 @@ services:
       - bot-data:/app/.bot-data
       # Optional SDK / Claude home state
       - claude-config:/home/claude/.claude
-      # Optional: Mount your local workspace for Claude to work on
-      # Uncomment and modify path as needed:
-      # - /path/to/your/project:/app/workspace
+      # Optional: Mount your local workspace for Claude to work on.
+      # Requires LOCAL_MOUNT_PATH in .env (a path on your host machine).
+      - ${LOCAL_MOUNT_PATH}:/workspace
 
     # Resource limits (adjust based on your needs)
     deploy:

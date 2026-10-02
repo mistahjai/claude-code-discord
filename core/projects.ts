@@ -11,7 +11,9 @@
  *
  * Security: /project add validates that the target resolves (realpath, so
  * symlinks cannot escape) to a directory under the allowlist root
- * (PROJECTS_ROOT env var, default /workspace).
+ * (PROJECTS_ROOT env var, default /workspace). When PROJECTS_ROOT is set
+ * explicitly but doesn't resolve, startup fails loudly rather than silently
+ * becoming the allowlist.
  *
  * @module core/projects
  */
@@ -28,6 +30,11 @@ export interface ProjectManagerOps {
   resolve(channelId: string | undefined, fallback: string): string;
   /** Map a channel to a validated project directory. Returns the resolved dir. Throws on invalid path. */
   add(channelId: string, rawPath: string): Promise<string>;
+  /** Validate a path against the allowlist and return its realpath. Does not
+   *  persist anything. Throws if missing, not a directory, or outside the root. */
+  validate(rawPath: string): Promise<string>;
+  /** Map a channel to an already-validated realpath, skipping revalidation. */
+  set(channelId: string, realDir: string): Promise<void>;
   /** Remove the mapping for a channel. Returns the removed dir or undefined. */
   removeChannel(channelId: string): string | undefined;
   /** Remove all channel mappings for a path. Returns the removed channel IDs. */
@@ -40,7 +47,33 @@ export interface ProjectManagerOps {
  * Create a ProjectManager backed by .bot-data/projects.json.
  */
 export function createProjectManager(): ProjectManagerOps {
-  const allowlistRoot = Deno.env.get("PROJECTS_ROOT") ?? "/workspace";
+  const configuredRoot = Deno.env.get("PROJECTS_ROOT");
+  const allowlistRoot = configuredRoot ?? "/workspace";
+
+  // Fail fast when PROJECTS_ROOT is explicitly set but unusable. The most common
+  // cause is passing a host path: bind mounts exist inside the container under a
+  // different path, so a host path doesn't resolve here. Without this check the
+  // root silently becomes the allowlist and every /project add is rejected with
+  // a confusing "outside the allowed root" naming the host path.
+  // An unset PROJECTS_ROOT falls back to /workspace without this check, so a
+  // native install without /project still starts.
+  let realAllowlistRoot = allowlistRoot;
+  if (configuredRoot) {
+    let resolvedRoot: string;
+    try {
+      resolvedRoot = Deno.realPathSync(allowlistRoot);
+    } catch {
+      throw new Error(
+        `PROJECTS_ROOT is set to \`${allowlistRoot}\` but that path does not exist in this ` +
+          `environment. Use a path that exists where the bot runs (in Docker this is ` +
+          `inside the container, e.g. /workspace — not the host path).`,
+      );
+    }
+    if (!Deno.statSync(resolvedRoot).isDirectory) {
+      throw new Error(`PROJECTS_ROOT is set to \`${allowlistRoot}\` but it is not a directory.`);
+    }
+    realAllowlistRoot = resolvedRoot;
+  }
   const mappings = new Map<string, string>(loadFromDisk());
 
   /**
@@ -56,11 +89,13 @@ export function createProjectManager(): ProjectManagerOps {
     }
 
     const real = await Deno.realPath(resolved);
-    // Realpath the allowlist root too, so containment holds when the root
-    // itself is reached through a symlink
-    const realRoot = await Deno.realPath(allowlistRoot).catch(() => allowlistRoot);
-    if (real !== realRoot && !real.startsWith(realRoot + path.sep)) {
-      throw new Error(`Path is outside the allowed root \`${allowlistRoot}\`: ${real}`);
+    // Containment check against the pre-resolved allowlist root (realpath'd at
+    // startup when PROJECTS_ROOT is set, so a symlinked root still holds)
+    if (real !== realAllowlistRoot && !real.startsWith(realAllowlistRoot + path.sep)) {
+      throw new Error(
+        `Path is outside the allowed root \`${realAllowlistRoot}\`: ${real}\n` +
+          `Use a path inside the allowed root (in Docker, use the container path such as /workspace/<repo>).`,
+      );
     }
 
     return real;
@@ -94,6 +129,16 @@ export function createProjectManager(): ProjectManagerOps {
       await save();
       console.log(`[Projects] Mapped channel ${channelId} → ${dir}`);
       return dir;
+    },
+
+    async validate(rawPath: string): Promise<string> {
+      return await validateProjectPath(rawPath);
+    },
+
+    async set(channelId: string, realDir: string): Promise<void> {
+      mappings.set(channelId, realDir);
+      await save();
+      console.log(`[Projects] Mapped channel ${channelId} → ${realDir}`);
     },
 
     removeChannel(channelId: string): string | undefined {

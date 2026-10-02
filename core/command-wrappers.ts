@@ -584,7 +584,8 @@ function createProjectCommandHandlers(
       execute: async (ctx: InteractionContext) => {
         const subcommand = ctx.getSubcommand() ?? '';
         const path = ctx.getString('path') ?? undefined;
-        await projectHandlers.onProject(ctx, subcommand, path);
+        const name = ctx.getString('name') ?? undefined;
+        await projectHandlers.onProject(ctx, subcommand, path, name);
       }
     }],
   ]);
