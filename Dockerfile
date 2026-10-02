@@ -1,5 +1,9 @@
 # Claude Code Discord Bot
 # SDK-only production image (Deno + @anthropic-ai/claude-agent-sdk)
+#
+# NOTE: since SDK 0.3.x the CLI ships as a platform-native binary pulled in via an
+# optional dependency (~230MB for linux-x64), not a bundled cli.js. The architecture
+# is therefore baked in at build time, and the image grows by roughly that amount.
 
 FROM denoland/deno:latest
 

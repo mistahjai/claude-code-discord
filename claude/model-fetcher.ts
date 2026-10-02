@@ -128,15 +128,29 @@ function buildAliases(models: Record<string, ModelInfo>, apiModels: AnthropicMod
   }
 }
 
+function modelsEndpoint(): string {
+  const baseUrl = Deno.env.get("ANTHROPIC_BASE_URL")?.trim().replace(/\/+$/, "");
+  if (!baseUrl) return "https://api.anthropic.com/v1/models";
+  return baseUrl.endsWith("/v1") ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
+}
+
 /**
  * Fetch models from the Anthropic API.
- * Returns null if no API key is set or the request fails.
+ * Returns null if no credential is set or the request fails.
  */
 async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) {
+  const authToken = Deno.env.get("ANTHROPIC_AUTH_TOKEN");
+  if (!apiKey && !authToken) {
     return null;
   }
+
+  const headers: Record<string, string> = {
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+  };
+  if (apiKey) headers["x-api-key"] = apiKey;
+  if (authToken) headers["authorization"] = `Bearer ${authToken}`;
 
   try {
     const allModels: AnthropicModelEntry[] = [];
@@ -144,7 +158,7 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
     let afterId: string | undefined;
 
     while (hasMore) {
-      const url = new URL("https://api.anthropic.com/v1/models");
+      const url = new URL(modelsEndpoint());
       url.searchParams.set("limit", "100");
       if (afterId) {
         url.searchParams.set("after_id", afterId);
@@ -152,11 +166,7 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
 
       const response = await fetch(url.toString(), {
         method: "GET",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
+        headers,
       });
 
       if (!response.ok) {
@@ -206,86 +216,31 @@ function buildModelsFromAPI(apiModels: AnthropicModelEntry[]): Record<string, Mo
 
 /**
  * Parse model IDs from the installed Claude CLI binary.
- * Looks for patterns like "claude-xxx-yyy-YYYYMMDD" in cli.js.
- * Checks both the old package (@anthropic-ai/claude-code) and
- * the new SDK package (@anthropic-ai/claude-agent-sdk).
+ * Looks for patterns like "claude-xxx-yyy-YYYYMMDD" in the executable on PATH.
  */
 async function parseModelsFromCLI(): Promise<string[] | null> {
   try {
-    // Common install paths for Claude CLI (both old and new package names)
-    const packageNames = [
-      '@anthropic-ai/claude-code',
-      '@anthropic-ai/claude-agent-sdk',
-    ];
-    const possiblePaths: string[] = [];
-    
-    for (const pkg of packageNames) {
-      // npm global (Windows)
-      const appData = Deno.env.get("APPDATA");
-      if (appData) possiblePaths.push(`${appData}/npm/node_modules/${pkg}/cli.js`);
-      // npm global (Unix)
-      possiblePaths.push(`/usr/local/lib/node_modules/${pkg}/cli.js`);
-      possiblePaths.push(`/usr/lib/node_modules/${pkg}/cli.js`);
-      // User-specific npm (Unix)
-      const home = Deno.env.get("HOME");
-      if (home) possiblePaths.push(`${home}/.npm-global/lib/node_modules/${pkg}/cli.js`);
-    }
+    // Current releases of @anthropic-ai/claude-code and @anthropic-ai/claude-agent-sdk ship a
+    // native binary plus a compressed manifest — neither exposes a cli.js to read, so scan the
+    // installed binary itself. Decoded leniently because native blobs are not valid UTF-8.
+    const isWindows = Deno.build.os === 'windows';
+    const whichCmd = isWindows ? 'where' : 'which';
+    const cmd = new Deno.Command(whichCmd, {
+      args: ['claude'],
+      stdout: 'piped',
+      stderr: 'piped',
+    });
+    const { stdout } = await cmd.output();
+    const claudePath = new TextDecoder().decode(stdout).trim().split('\n')[0].trim();
 
     let cliContent: string | null = null;
-
-    for (const cliPath of possiblePaths) {
-      if (!cliPath) continue;
+    if (claudePath) {
       try {
-        cliContent = await Deno.readTextFile(cliPath);
-        console.log(`Model fetcher: Found CLI binary at ${cliPath}`);
-        break;
+        const bytes = await Deno.readFile(claudePath);
+        cliContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        console.log(`Model fetcher: Found CLI binary at ${claudePath}`);
       } catch {
-        // Try next path
-      }
-    }
-
-    // Also try locating via `which claude` / `where claude`
-    if (!cliContent) {
-      try {
-        const isWindows = Deno.build.os === 'windows';
-        const whichCmd = isWindows ? 'where' : 'which';
-        const cmd = new Deno.Command(whichCmd, {
-          args: ['claude'],
-          stdout: 'piped',
-          stderr: 'piped',
-        });
-        const { stdout } = await cmd.output();
-        const claudePath = new TextDecoder().decode(stdout).trim().split('\n')[0].trim();
-        
-        if (claudePath) {
-          // Claude is a JS script — the actual CLI is in the same package
-          // Resolve to the package's cli.js (check both old and new package names)
-          const basePath = claudePath.replace(/[/\\]claude(\.cmd|\.ps1)?$/i, '');
-          const possibleCliJsPaths = [
-            `${basePath}/node_modules/@anthropic-ai/claude-code/cli.js`,
-            `${basePath}/node_modules/@anthropic-ai/claude-agent-sdk/cli.js`,
-          ];
-          
-          for (const possibleCliJs of possibleCliJsPaths) {
-            try {
-              cliContent = await Deno.readTextFile(possibleCliJs);
-              break;
-            } catch {
-              // Try next path
-            }
-          }
-          
-          if (!cliContent) {
-            // The claude binary might itself contain model references
-            try {
-              cliContent = await Deno.readTextFile(claudePath);
-            } catch {
-              // Give up on this path
-            }
-          }
-        }
-      } catch {
-        // which/where failed
+        // unreadable — fall through
       }
     }
 

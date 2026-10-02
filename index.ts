@@ -183,9 +183,11 @@ export async function createClaudeCodeBot(config: BotConfig) {
   // Create a text channel in the bot's category (late-bound to the client).
   // Reuses the category/channel creation the bot already performs at startup.
   const createProjectChannel = async (name: string, topic: string): Promise<string> => {
-    const main = bot?.getChannel?.();
+    const main = bot?.getChannel?.() as TextChannel | null;
     if (!main?.parentId) throw new Error('Bot category not ready');
-    const created = await bot.client.channels.create({
+    // Channel creation is a guild-level API in discord.js v14; the client-level
+    // ChannelManager only exposes fetch().
+    const created = await main.guild.channels.create({
       name,
       type: ChannelType.GuildText,
       parent: main.parentId,
@@ -196,9 +198,12 @@ export async function createClaudeCodeBot(config: BotConfig) {
 
   const sendChannelNotice = async (channelId: string, content: string): Promise<void> => {
     try {
-      // deno-lint-ignore no-explicit-any
-      const ch = bot?.client?.channels?.cache?.get(channelId) as any;
-      await ch?.send?.(content);
+      const ch = bot?.client?.channels?.cache?.get(channelId) as TextChannel | null;
+      if (!ch) {
+        console.warn(`[Projects] Channel ${channelId} not in cache; notice skipped`);
+        return;
+      }
+      await ch.send(content);
     } catch (error) {
       console.warn('[Projects] Could not post channel notice:', error);
     }

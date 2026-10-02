@@ -232,8 +232,10 @@ export const EFFORT_LEVELS = {
 } as const;
 
 // Operation mode options — maps to SDK permissionMode
-// NOTE: In the new Claude Agent SDK (v0.2.45), there are 6 permission modes:
-//   default, acceptEdits, bypassPermissions, plan, delegate, dontAsk
+// NOTE: in the Claude Agent SDK (v0.3.x) the native modes are:
+//   default, acceptEdits, bypassPermissions, plan, dontAsk, auto
+// 'delegate' is no longer in the SDK's type but is kept here because Delegate Mode is
+// still exposed in settings — verify it against the pinned SDK before relying on it.
 //
 // For Discord bots, 'dontAsk' is ideal — it auto-denies anything not pre-approved,
 // preventing the bot from hanging on interactive permission prompts.

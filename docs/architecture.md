@@ -53,7 +53,11 @@ claude-code-discord/
 
 ## SDK Integration
 
-Built on `@anthropic-ai/claude-agent-sdk` v0.2.45.
+Built on `@anthropic-ai/claude-agent-sdk` v0.3.286.
+
+> The SDK version is locked to a Claude Code release. v0.3.286 ships CLI v2.1.286 as a
+> platform-native binary (~230MB on linux-x64) installed via an optional dependency, so the
+> container architecture is fixed at image build time.
 
 ### Data Flow
 

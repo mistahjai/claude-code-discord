@@ -1,4 +1,4 @@
-import { query as claudeQuery, type SDKMessage, type AgentDefinition as SDKAgentDefinition, type ModelInfo as SDKModelInfo, type SdkBeta, type McpServerConfig, type HookEvent, type HookCallbackMatcher } from "@anthropic-ai/claude-agent-sdk";
+import { query as claudeQuery, type SDKMessage, type AgentDefinition as SDKAgentDefinition, type ModelInfo as SDKModelInfo, type SdkBeta, type McpServerConfig, type HookEvent, type HookCallbackMatcher, type PermissionMode as SDKNativePermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { setActiveQuery, trackMessageId, clearTrackedMessages } from "./query-manager.ts";
 import { setChannelSkills } from "./skill-registry.ts";
 import type { AskUserQuestionInput, AskUserCallback } from "./user-question.ts";
@@ -73,9 +73,10 @@ export function cleanSessionId(sessionId: string): string {
 }
 
 // Valid SDK permission modes (maps to CLI --permission-mode)
-// New SDK (claude-agent-sdk) supports 6 modes:
-//   default, acceptEdits, bypassPermissions, plan, delegate, dontAsk
-export type SDKPermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' | 'delegate' | 'dontAsk';
+// Tracks the SDK's own union so future bumps pick up upstream additions (e.g. 'auto').
+// 'delegate' is kept because our OPERATION_MODES still expose Delegate Mode, but the
+// SDK removed it from its type in 0.3.x — verify it still works before relying on it.
+export type SDKPermissionMode = SDKNativePermissionMode | 'delegate';
 
 // Thinking configuration — native SDK option (replaces MAX_THINKING_TOKENS env var hack)
 export type ThinkingConfig =
@@ -159,6 +160,24 @@ export interface ClaudeModelOptions {
 // Default query timeout: 10 minutes. Prevents hanging if the SDK stalls.
 const DEFAULT_QUERY_TIMEOUT_MS = 10 * 60 * 1000;
 
+// Override with QUERY_TIMEOUT_MS (seconds) so a stall can be surfaced quickly while
+// debugging a gateway without rebuilding the image.
+function resolveQueryTimeoutMs(): number {
+  const raw = Deno.env.get("QUERY_TIMEOUT_MS");
+  if (!raw) return DEFAULT_QUERY_TIMEOUT_MS;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    console.warn(`Invalid QUERY_TIMEOUT_MS="${raw}", using default ${DEFAULT_QUERY_TIMEOUT_MS / 1000}s`);
+    return DEFAULT_QUERY_TIMEOUT_MS;
+  }
+  return seconds * 1000;
+}
+
+function timeoutMessage(timeoutMs: number): string {
+  return `Query timed out after ${timeoutMs / 1000}s — the SDK produced no response. ` +
+    `If this happens on a custom ANTHROPIC_BASE_URL, the gateway likely stalled the stream.`;
+}
+
 // Wrapper for Claude Code SDK query function
 export async function sendToClaudeCode(
   workDir: string,
@@ -228,7 +247,7 @@ export async function sendToClaudeCode(
         abortController: controller,
         options: {
           cwd: workDir,
-          permissionMode: permMode,
+          permissionMode: permMode as SDKNativePermissionMode,
           // Use Claude Code's system prompt + optional append
           systemPrompt: systemPromptConfig,
           // Load project CLAUDE.md files
@@ -416,7 +435,7 @@ export async function sendToClaudeCode(
   };
   
   // First try with specified model (or default), with a timeout to prevent indefinite hangs
-  const timeoutMs = DEFAULT_QUERY_TIMEOUT_MS;
+  const timeoutMs = resolveQueryTimeoutMs();
   const channelId = modelOptions?.channelId;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -424,9 +443,12 @@ export async function sendToClaudeCode(
       executeWithErrorHandling(),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
+          // Reject before aborting: abort() makes executeWithErrorHandling resolve with
+          // { aborted: true }, which would win the race and report the stall as a
+          // cancellation instead of a timeout.
+          reject(new Error(timeoutMessage(timeoutMs)));
           controller.abort();
           setActiveQuery(null, channelId);
-          reject(new Error(`Query timed out after ${timeoutMs / 1000}s`));
         }, timeoutMs);
       }),
     ]);
@@ -474,7 +496,7 @@ export async function sendToClaudeCode(
             haikuTimeoutId = setTimeout(() => {
               controller.abort();
               setActiveQuery(null, channelId);
-              reject(new Error(`Query timed out after ${timeoutMs / 1000}s`));
+              reject(new Error(timeoutMessage(timeoutMs)));
             }, timeoutMs);
           }),
         ]);

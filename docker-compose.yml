@@ -32,17 +32,20 @@ services:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - APPLICATION_ID=${APPLICATION_ID}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}
       - WORK_DIR=${WORK_DIR:-/workspace}
       # Allowlist root for /project add. Must be a path INSIDE the container
       # (e.g. /workspace), never the host path — a host path doesn't exist in the
       # container and /project add will reject every project.
       - PROJECTS_ROOT=${PROJECTS_ROOT:-/workspace}
-      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
-      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GH_TOKEN=${GH_TOKEN}
       - USER_ID=${USER_ID:-}
       - CATEGORY_NAME=${CATEGORY_NAME:-claude-code}
       - MONITOR_CHANNEL_ID=${MONITOR_CHANNEL_ID:-}
       - MONITOR_BOT_IDS=${MONITOR_BOT_IDS:-}
+      - QUERY_TIMEOUT_MS=${QUERY_TIMEOUT_MS:-240}
 
     # Volume mounts for persistence and workspace access
     volumes:
