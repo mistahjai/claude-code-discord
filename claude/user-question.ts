@@ -51,7 +51,11 @@ export interface AskUserQuestionInput {
  *
  * Throwing rejects the tool use (deny).
  */
-export type AskUserCallback = (input: AskUserQuestionInput) => Promise<Record<string, string>>;
+export type AskUserCallback = (
+  input: AskUserQuestionInput,
+  /** Channel the prompt was issued from, so the question appears where the user is. */
+  channelId?: string,
+) => Promise<Record<string, string>>;
 
 // ================================
 // Discord UI Builders

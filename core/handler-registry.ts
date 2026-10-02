@@ -11,7 +11,7 @@ import type {
   BotDependencies
 } from "../discord/index.ts";
 
-import type { ClaudeMessage } from "../claude/index.ts";
+import type { ClaudeMessage, DiscordSender } from "../claude/index.ts";
 
 // Import command definitions
 import { claudeCommands, createClaudeHandlers } from "../claude/index.ts";
@@ -203,6 +203,9 @@ export interface HandlerRegistryDeps {
   /** True when a channel/thread legitimately uses the default workDir (the bot's
    *  own channel and threads directly inside it), so the unmapped guard skips them. */
   usesDefaultWorkDir?: (channelId?: string) => boolean;
+  /** Sender bound to a specific channel so a session started outside the bot's
+   *  own channel replies there instead of streaming into the main channel. */
+  getChannelSender?: (channelId?: string) => DiscordSender | undefined;
   /** Create a text channel inside the bot's category, return its id (late-bound) */
   createProjectChannel?: (name: string, topic: string) => Promise<string>;
   /** Post a notice message into a channel (late-bound) */
@@ -594,6 +597,7 @@ export function createAllHandlers(
     sendClaudeMessages,
     getQueryOptions,
     sessionThreads: deps.sessionThreads,
+    getChannelSender: deps.getChannelSender,
   });
 
   const skillCommandHandlers = createSkillCommandHandlers({

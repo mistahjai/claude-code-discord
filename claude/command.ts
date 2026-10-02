@@ -1,4 +1,5 @@
 import type { ClaudeResponse, ClaudeMessage } from "./types.ts";
+import { createClaudeSender, type DiscordSender } from "./discord-sender.ts";
 import { sendToClaudeCode, type ClaudeModelOptions } from "./client.ts";
 import { convertToClaudeMessages } from "./message-converter.ts";
 import {
@@ -118,6 +119,10 @@ export interface ClaudeHandlerDeps {
    *  workDir: the bot's own channel and threads directly inside it. Those are
    *  unmapped by design, so the unmapped-channel guard must not fire on them. */
   usesDefaultWorkDir?: (channelId?: string) => boolean;
+  /** Sender bound to a specific channel, so a session started outside the bot's
+   *  own channel replies there instead of streaming into the main channel.
+   *  Return undefined to keep the default (main channel) sender. */
+  getChannelSender?: (channelId?: string) => DiscordSender | undefined;
 }
 
 export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
@@ -131,6 +136,18 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       getThreadChannelId: deps.sessionThreads?.getThreadChannelId.bind(deps.sessionThreads),
       findSessionByThreadId: deps.sessionThreads?.findSessionByThreadId.bind(deps.sessionThreads),
     });
+  }
+
+  // A brand-new session has no thread yet, so the default sender would stream the
+  // whole reply into the bot's main channel. Fall back to the channel the command
+  // was issued in — that is where the user is actually looking.
+  function useChannelSenderIfNoThread(
+    sender: (messages: ClaudeMessage[]) => Promise<void>,
+    channelId: string,
+  ): (messages: ClaudeMessage[]) => Promise<void> {
+    if (sender !== sendClaudeMessages) return sender;
+    const channelSender = deps.getChannelSender?.(channelId);
+    return channelSender ? createClaudeSender(channelSender) : sender;
   }
 
   // deno-lint-ignore no-explicit-any
@@ -165,6 +182,7 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
           }
         } catch { /* fallback to main sender */ }
       }
+      activeSender = useChannelSenderIfNoThread(activeSender, channelId);
 
       const isResuming = !!activeSessionId;
       const runningThreadId = threadIdFor(activeSessionId, channelId);
@@ -408,6 +426,8 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
       }
 
       const channelId = threadChannelId || parentChannelId;
+      // Thread creation failed → reply in the channel it was issued from, not #main
+      activeSender = useChannelSenderIfNoThread(activeSender, channelId);
       // Rebind controller to the thread channel so cancel inside the thread hits the right key
       if (threadChannelId && parentChannelId && threadChannelId !== parentChannelId) {
         deps.setClaudeController(null, parentChannelId);
@@ -546,6 +566,9 @@ export function createClaudeHandlers(deps: ClaudeHandlerDeps) {
             console.warn('[SessionThread] Could not reuse thread for continue, falling back:', err);
           }
         }
+
+        // No reusable thread → reply in the issuing channel, not #main
+        activeSender = useChannelSenderIfNoThread(activeSender, channelId);
 
         const resumeThreadId = threadIdFor(resumeSessionId, channelId);
 

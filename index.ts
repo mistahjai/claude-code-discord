@@ -23,7 +23,7 @@ import { ChannelType, type TextChannel } from "npm:discord.js@14.14.1";
 
 import { getGitInfo } from "./git/index.ts";
 import { createClaudeSender, expandableContent, sendToClaudeCode, convertToClaudeMessages, type DiscordSender, type ClaudeMessage, type SessionThreadCallbacks } from "./claude/index.ts";
-import { buildQuestionMessages, parseAskUserButtonId, parseAskUserConfirmId, type AskUserQuestionInput } from "./claude/index.ts";
+import { buildQuestionMessages, parseAskUserButtonId, parseAskUserConfirmId, type AskUserCallback, type AskUserQuestionInput } from "./claude/index.ts";
 import { buildPermissionEmbed, parsePermissionButtonId, type PermissionRequestCallback } from "./claude/index.ts";
 import { claudeCommands, enhancedClaudeCommands } from "./claude/index.ts";
 import { additionalClaudeCommands } from "./claude/additional-index.ts";
@@ -284,7 +284,9 @@ export async function createClaudeCodeBot(config: BotConfig) {
   // When Claude needs clarification mid-session, this sends buttons to Discord
   // and waits for the user's click.
   // Uses an object wrapper so TypeScript doesn't narrow the closure to `never`.
-  const askUserState: { handler: ((input: AskUserQuestionInput) => Promise<Record<string, string>>) | null } = { handler: null };
+  const askUserState: {
+    handler: AskUserCallback | null;
+  } = { handler: null };
 
   // Late-bound PermissionRequest handler — set after bot is created.
   // When Claude wants to use a tool that isn't pre-approved, this shows
@@ -298,21 +300,37 @@ export async function createClaudeCodeBot(config: BotConfig) {
     }
   };
 
+  // Sender bound to the channel a command was issued from. Without this, a
+  // session started in a project channel streams its whole reply into the bot's
+  // main channel, because the default sender is hardcoded to bot.getChannel().
+  // Returns undefined for the bot's own channel so those replies stay put.
+  const getChannelSender = (channelId?: string): DiscordSender | undefined => {
+    if (!channelId || !bot?.client) return undefined;
+    const main = bot.getChannel?.() as TextChannel | null;
+    if (!main || channelId === main.id) return undefined;
+    const ch = bot.client.channels.cache.get(channelId) as TextChannel | undefined;
+    if (!ch?.isTextBased()) return undefined;
+    return createChannelSenderAdapter(ch);
+  };
+
   // Create onAskUser wrapper — delegates to askUserState.handler once bot is ready
-  const onAskUser = async (input: AskUserQuestionInput): Promise<Record<string, string>> => {
+  const onAskUser = async (
+    input: AskUserQuestionInput,
+    channelId?: string,
+  ): Promise<Record<string, string>> => {
     if (!askUserState.handler) {
       throw new Error('AskUserQuestion handler not initialized — bot not ready');
     }
-    return await askUserState.handler(input);
+    return await askUserState.handler(input, channelId);
   };
 
   // Create onPermissionRequest wrapper — delegates to permReqState.handler once bot is ready
-  const onPermissionRequest: PermissionRequestCallback = async (toolName, toolInput) => {
+  const onPermissionRequest: PermissionRequestCallback = async (toolName, toolInput, channelId) => {
     if (!permReqState.handler) {
       console.warn('[PermissionRequest] Handler not initialized — auto-denying');
       return false;
     }
-    return await permReqState.handler(toolName, toolInput);
+    return await permReqState.handler(toolName, toolInput, channelId);
   };
 
   // Create all handlers using the registry (centralized handler creation)
@@ -345,6 +363,7 @@ export async function createClaudeCodeBot(config: BotConfig) {
       resolveWorkDir: resolveWorkDirForChannel,
       resolveProjectDir,
       usesDefaultWorkDir,
+      getChannelSender,
       createProjectChannel,
       sendChannelNotice,
     },
@@ -466,11 +485,27 @@ export async function createClaudeCodeBot(config: BotConfig) {
     return bot.getChannel();
   };
 
+  // Resolve a channel for interactive prompts. Undefined for unknown/non-text
+  // channels so callers fall back to the legacy session lookup.
+  const resolvePromptChannel = (channelId: string) => {
+    if (!bot?.client) return undefined;
+    const ch = bot.client.channels.cache.get(channelId);
+    return ch?.isTextBased?.() ? ch : undefined;
+  };
+
   // Initialize AskUserQuestion handler — sends questions to Discord, waits for button clicks
-  askUserState.handler = createAskUserDiscordHandler(bot, getActiveSessionChannel);
+  askUserState.handler = createAskUserDiscordHandler(
+    bot,
+    getActiveSessionChannel,
+    resolvePromptChannel,
+  );
 
   // Initialize PermissionRequest handler — shows Allow/Deny buttons for unapproved tools
-  permReqState.handler = createPermissionRequestHandler(bot, getActiveSessionChannel);
+  permReqState.handler = createPermissionRequestHandler(
+    bot,
+    getActiveSessionChannel,
+    resolvePromptChannel,
+  );
 
   // Check for updates (non-blocking)
   runVersionCheck().then(async ({ updateAvailable, embed }) => {
@@ -625,10 +660,22 @@ function createChannelSenderAdapter(channel: any): DiscordSender {
  * 3. Waits up to 5 minutes for button clicks
  * 4. Returns answers to the SDK so Claude can continue
  */
-// deno-lint-ignore no-explicit-any
-function createAskUserDiscordHandler(bot: any, getTargetChannel?: () => any): (input: AskUserQuestionInput) => Promise<Record<string, string>> {
-  return async (input: AskUserQuestionInput): Promise<Record<string, string>> => {
-    const channel = getTargetChannel?.() ?? bot.getChannel();
+function createAskUserDiscordHandler(
+  // deno-lint-ignore no-explicit-any
+  bot: any,
+  // deno-lint-ignore no-explicit-any
+  getTargetChannel?: () => any,
+  // deno-lint-ignore no-explicit-any
+  resolveChannel?: (channelId: string) => any,
+): AskUserCallback {
+  return async (
+    input: AskUserQuestionInput,
+    channelId?: string,
+  ): Promise<Record<string, string>> => {
+    // Prefer the channel the prompt came from; fall back to the legacy global
+    // session lookup so a session started before this still resolves.
+    const channel = (channelId ? resolveChannel?.(channelId) : undefined) ??
+      getTargetChannel?.() ?? bot.getChannel();
     if (!channel) {
       throw new Error('Discord channel not available');
     }
@@ -749,13 +796,26 @@ function createAskUserDiscordHandler(bot: any, getTargetChannel?: () => any): (i
  * 4. Waits for a button click (no timeout — user decides)
  * 5. Returns true (allow) or false (deny)
  */
-// deno-lint-ignore no-explicit-any
-function createPermissionRequestHandler(bot: any, getTargetChannel?: () => any): PermissionRequestCallback {
+function createPermissionRequestHandler(
+  // deno-lint-ignore no-explicit-any
+  bot: any,
+  // deno-lint-ignore no-explicit-any
+  getTargetChannel?: () => any,
+  // deno-lint-ignore no-explicit-any
+  resolveChannel?: (channelId: string) => any,
+): PermissionRequestCallback {
   // Simple incrementing nonce to disambiguate concurrent requests
   let nonce = 0;
 
-  return async (toolName: string, toolInput: Record<string, unknown>): Promise<boolean> => {
-    const channel = getTargetChannel?.() ?? bot.getChannel();
+  return async (
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    channelId?: string,
+  ): Promise<boolean> => {
+    // Prefer the channel the prompt came from; fall back to the legacy global
+    // session lookup so a session started before this still resolves.
+    const channel = (channelId ? resolveChannel?.(channelId) : undefined) ??
+      getTargetChannel?.() ?? bot.getChannel();
     if (!channel) {
       console.warn('[PermissionRequest] No channel — auto-denying');
       return false;

@@ -290,7 +290,7 @@ export async function sendToClaudeCode(
             if (toolName === 'AskUserQuestion' && modelOptions?.onAskUser) {
               try {
                 const askInput = input as unknown as AskUserQuestionInput;
-                const answers = await modelOptions.onAskUser(askInput);
+                const answers = await modelOptions.onAskUser(askInput, modelOptions?.channelId);
                 return {
                   behavior: 'allow' as const,
                   updatedInput: {
@@ -312,7 +312,11 @@ export async function sendToClaudeCode(
             // Interactive permission request — show Discord buttons for Allow/Deny
             if (modelOptions?.onPermissionRequest) {
               try {
-                const allowed = await modelOptions.onPermissionRequest(toolName, input);
+                const allowed = await modelOptions.onPermissionRequest(
+                  toolName,
+                  input,
+                  modelOptions?.channelId,
+                );
                 if (allowed) {
                   return { behavior: 'allow' as const, updatedInput: input };
                 }

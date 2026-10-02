@@ -25,6 +25,8 @@
 export type PermissionRequestCallback = (
   toolName: string,
   toolInput: Record<string, unknown>,
+  /** Channel the prompt was issued from, so the prompt appears where the user is. */
+  channelId?: string,
 ) => Promise<boolean>;
 
 // ================================
